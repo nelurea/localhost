@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -28,7 +28,6 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,25 +35,40 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nelurea.localhost.data.LocalhostDatabase
+import io.github.nelurea.localhost.data.PostEntity
+import io.github.nelurea.localhost.data.PostRepository
 import io.github.nelurea.localhost.ui.theme.LocalhostTheme
 
 class MainActivity : ComponentActivity() {
+    private val homeViewModel: HomeViewModel by viewModels {
+        val database = LocalhostDatabase.getInstance(applicationContext)
+        HomeViewModel.Factory(PostRepository(database.postDao()))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             LocalhostTheme {
-                HomeScreen()
+                val posts by homeViewModel.posts.collectAsStateWithLifecycle()
+                HomeScreen(
+                    posts = posts,
+                    onPost = { text, onSaved -> homeViewModel.addPost(text, onSaved) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun HomeScreen(modifier: Modifier = Modifier) {
-    val posts = remember { mutableStateListOf<String>() }
+fun HomeScreen(
+    posts: List<PostEntity>,
+    onPost: (String, () -> Unit) -> Unit,
+    modifier: Modifier = Modifier
+) {
     var draft by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
 
     Column(
         modifier = modifier
@@ -63,15 +77,17 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             .imePadding()
     ) {
         LazyColumn(
-            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            items(posts) { post ->
+            items(
+                items = posts,
+                key = { it.id }
+            ) { post ->
                 Text(
-                    text = post,
+                    text = post.text,
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -86,8 +102,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             onPost = {
                 val post = draft.trim()
                 if (post.isNotEmpty()) {
-                    posts.add(0, post)
-                    draft = ""
+                    onPost(post) { draft = "" }
                 }
             },
             modifier = Modifier
@@ -145,6 +160,15 @@ private fun Composer(
 @Composable
 private fun HomeScreenPreview() {
     LocalhostTheme {
-        HomeScreen()
+        HomeScreen(
+            posts = listOf(
+                PostEntity(
+                    id = 1,
+                    createdAt = 0,
+                    text = "A saved thought"
+                )
+            ),
+            onPost = { _, onSaved -> onSaved() }
+        )
     }
 }

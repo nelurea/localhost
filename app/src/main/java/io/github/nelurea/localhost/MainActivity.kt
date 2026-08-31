@@ -1,4 +1,4 @@
-package io.github.nelurea.localhost
+﻿package io.github.nelurea.localhost
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,14 +28,13 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.nelurea.localhost.data.DraftStore
 import io.github.nelurea.localhost.data.LocalhostDatabase
 import io.github.nelurea.localhost.data.PostEntity
 import io.github.nelurea.localhost.data.PostRepository
@@ -44,18 +43,29 @@ import io.github.nelurea.localhost.ui.theme.LocalhostTheme
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
         val database = LocalhostDatabase.getInstance(applicationContext)
-        HomeViewModel.Factory(PostRepository(database.postDao()))
+
+        HomeViewModel.Factory(
+            repository = PostRepository(database.postDao()),
+            draftStore = DraftStore(applicationContext)
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         setContent {
             LocalhostTheme {
                 val posts by homeViewModel.posts.collectAsStateWithLifecycle()
+                val draft by homeViewModel.draft.collectAsStateWithLifecycle()
+
                 HomeScreen(
                     posts = posts,
-                    onPost = { text, onSaved -> homeViewModel.addPost(text, onSaved) }
+                    draft = draft,
+                    onDraftChange = homeViewModel::onDraftChange,
+                    onPost = { text, onSaved ->
+                        homeViewModel.addPost(text, onSaved)
+                    }
                 )
             }
         }
@@ -65,11 +75,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun HomeScreen(
     posts: List<PostEntity>,
+    draft: String,
+    onDraftChange: (String) -> Unit,
     onPost: (String, () -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var draft by remember { mutableStateOf("") }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -98,11 +108,12 @@ fun HomeScreen(
 
         Composer(
             text = draft,
-            onTextChange = { draft = it },
+            onTextChange = onDraftChange,
             onPost = {
                 val post = draft.trim()
+
                 if (post.isNotEmpty()) {
-                    onPost(post) { draft = "" }
+                    onPost(post) {}
                 }
             },
             modifier = Modifier
@@ -124,22 +135,27 @@ private fun Composer(
         tonalElevation = 2.dp
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.padding(
+                horizontal = 12.dp,
+                vertical = 10.dp
+            ),
             verticalAlignment = Alignment.Bottom
         ) {
             TextField(
                 value = text,
                 onValueChange = onTextChange,
-                placeholder = { Text("Write something...") },
+                placeholder = {
+                    Text("Write something...")
+                },
                 modifier = Modifier.weight(1f),
                 minLines = 1,
                 maxLines = 5,
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    errorIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    errorIndicatorColor = Color.Transparent
                 )
             )
 
@@ -168,7 +184,11 @@ private fun HomeScreenPreview() {
                     text = "A saved thought"
                 )
             ),
-            onPost = { _, onSaved -> onSaved() }
+            draft = "",
+            onDraftChange = {},
+            onPost = { _, onSaved ->
+                onSaved()
+            }
         )
     }
 }

@@ -1,24 +1,74 @@
-package io.github.nelurea.localhost
+﻿package io.github.nelurea.localhost
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.nelurea.localhost.data.DraftStore
 import io.github.nelurea.localhost.data.PostEntity
 import io.github.nelurea.localhost.data.PostRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class HomeViewModel(
-    private val repository: PostRepository
+    private val repository: PostRepository,
+    private val draftStore: DraftStore
 ) : ViewModel() {
     val posts: StateFlow<List<PostEntity>> = repository.posts.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList()
     )
+
+    private val _draft = MutableStateFlow("")
+    val draft: StateFlow<String> = _draft.asStateFlow()
+
+    private var saveDraftJob: Job? = null
+    private var draftChangedSinceInit = false
+
+    init {
+        viewModelScope.launch {
+            val restoredDraft = try {
+                withContext(Dispatchers.IO) {
+                    draftStore.read()
+                }
+            } catch (_: Exception) {
+                ""
+            }
+
+            if (!draftChangedSinceInit) {
+                _draft.value = restoredDraft
+            }
+        }
+    }
+
+    fun onDraftChange(text: String) {
+        draftChangedSinceInit = true
+        _draft.value = text
+
+        saveDraftJob?.cancel()
+        saveDraftJob = viewModelScope.launch {
+            delay(300)
+
+            try {
+                withContext(Dispatchers.IO) {
+                    draftStore.write(text)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Keep the current in-memory draft if persistence fails.
+            }
+        }
+    }
 
     fun addPost(
         text: String,
@@ -30,24 +80,43 @@ class HomeViewModel(
         viewModelScope.launch {
             try {
                 repository.addPost(post)
+
+                if (_draft.value.trim() == post) {
+                    saveDraftJob?.cancel()
+
+                    try {
+                        withContext(Dispatchers.IO) {
+                            draftStore.clear()
+                        }
+                    } catch (_: Exception) {
+                        // The post is already safely persisted.
+                    }
+
+                    _draft.value = ""
+                }
+
                 onSaved()
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                // Keep the draft intact if persistence fails.
+                // Keep the draft intact if post persistence fails.
             }
         }
     }
 
     class Factory(
-        private val repository: PostRepository
+        private val repository: PostRepository,
+        private val draftStore: DraftStore
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-                return HomeViewModel(repository) as T
+                return HomeViewModel(repository, draftStore) as T
             }
-            throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+
+            throw IllegalArgumentException(
+                "Unknown ViewModel class: ${modelClass.name}"
+            )
         }
     }
 }

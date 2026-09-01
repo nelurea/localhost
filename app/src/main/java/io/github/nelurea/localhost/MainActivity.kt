@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,12 +34,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nelurea.localhost.data.DraftStore
 import io.github.nelurea.localhost.data.LocalhostDatabase
 import io.github.nelurea.localhost.data.PostEntity
 import io.github.nelurea.localhost.data.PostRepository
 import io.github.nelurea.localhost.ui.theme.LocalhostTheme
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
@@ -86,22 +92,25 @@ fun HomeScreen(
             .statusBarsPadding()
             .imePadding()
     ) {
+        val groupedPosts = posts.groupBy { postDate(it.createdAt) }
+
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(
+                top = 10.dp,
+                bottom = 12.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(
-                items = posts,
-                key = { it.id }
-            ) { post ->
-                Text(
-                    text = post.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
+                items = groupedPosts.entries.toList(),
+                key = { it.key.toEpochDay() }
+            ) { (date, dayPosts) ->
+                DayGroup(
+                    date = date,
+                    posts = dayPosts
                 )
             }
         }
@@ -120,6 +129,111 @@ fun HomeScreen(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         )
+    }
+}
+
+@Composable
+private fun DayGroup(
+    date: LocalDate,
+    posts: List<PostEntity>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = formatDateLabel(date),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(
+                start = 4.dp,
+                bottom = 2.dp
+            )
+        )
+
+        posts.forEach { post ->
+            TimelinePost(post = post)
+        }
+    }
+}
+
+@Composable
+private fun TimelinePost(
+    post: PostEntity,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 16.dp,
+                vertical = 12.dp
+            )
+        ) {
+            Text(
+                text = formatPostTime(post.createdAt),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = post.text,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    lineHeight = 24.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+private fun postDate(
+    createdAt: Long,
+    zoneId: ZoneId = ZoneId.systemDefault()
+): LocalDate {
+    return Instant
+        .ofEpochMilli(createdAt)
+        .atZone(zoneId)
+        .toLocalDate()
+}
+
+private fun formatPostTime(
+    createdAt: Long,
+    zoneId: ZoneId = ZoneId.systemDefault()
+): String {
+    return Instant
+        .ofEpochMilli(createdAt)
+        .atZone(zoneId)
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
+}
+
+private fun formatDateLabel(
+    date: LocalDate,
+    today: LocalDate = LocalDate.now()
+): String {
+    return when (date) {
+        today -> "Today"
+        today.minusDays(1) -> "Yesterday"
+        else -> {
+            val pattern = if (date.year == today.year) {
+                "M/d"
+            } else {
+                "yyyy/M/d"
+            }
+            date.format(DateTimeFormatter.ofPattern(pattern))
+        }
     }
 }
 

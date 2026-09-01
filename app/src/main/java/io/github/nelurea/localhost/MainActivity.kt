@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -35,9 +36,12 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
@@ -146,6 +150,7 @@ fun HomeScreen(
                         onPost(post) {}
                     }
                 },
+                palette = palette,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
@@ -310,6 +315,9 @@ private data class LocalhostPalette(
     val groupBorder: Color,
     val postPaper: Color,
     val postBorder: Color,
+    val composerGlass: Color,
+    val inputFill: Color,
+    val accent: Color,
     val ink: Color,
     val meta: Color,
     val metaStrong: Color,
@@ -326,6 +334,9 @@ private fun localhostPalette(): LocalhostPalette {
             groupBorder = Color(0x665C5D70),
             postPaper = Color(0xF2464652),
             postBorder = Color(0x665F6070),
+            composerGlass = Color(0xF2383843),
+            inputFill = Color(0xFF454651),
+            accent = Color(0xFF9699C8),
             ink = Color(0xFFF0ECF3),
             meta = Color(0xFFD3CCD9),
             metaStrong = Color(0xFFE2DCE8),
@@ -339,6 +350,9 @@ private fun localhostPalette(): LocalhostPalette {
             groupBorder = Color(0x99CDD5DF),
             postPaper = Color(0xF7FAF9FB),
             postBorder = Color(0x99D8D7E0),
+            composerGlass = Color(0xF2F0EFF4),
+            inputFill = Color(0xFFF7F6F9),
+            accent = Color(0xFF7D82AF),
             ink = Color(0xFF4E4A55),
             meta = Color(0xFF6E6878),
             metaStrong = Color(0xFF5C5667),
@@ -349,34 +363,63 @@ private fun localhostPalette(): LocalhostPalette {
 
 @Composable
 private fun Composer(
-
     text: String,
     onTextChange: (String) -> Unit,
     onPost: () -> Unit,
+    palette: LocalhostPalette,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier,
-        tonalElevation = 2.dp
+        color = palette.composerGlass,
+        tonalElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = 12.dp,
-                vertical = 10.dp
+                horizontal = 10.dp,
+                vertical = 8.dp
             ),
             verticalAlignment = Alignment.Bottom
         ) {
+            FutureActionButton(
+                drawableRes = R.drawable.ic_add_soft,
+                contentDescription = "Attach file",
+                palette = palette
+            )
+
+            Spacer(Modifier.width(6.dp))
+
+            FutureActionButton(
+                drawableRes = R.drawable.ic_emoji_soft,
+                contentDescription = "Emoji palette",
+                palette = palette
+            )
+
+            Spacer(Modifier.width(8.dp))
+
             TextField(
                 value = text,
                 onValueChange = onTextChange,
                 placeholder = {
-                    Text("Write something...")
+                    Text(
+                        text = "Write something…",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = palette.meta
+                    )
                 },
                 modifier = Modifier.weight(1f),
                 minLines = 1,
                 maxLines = 5,
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(18.dp),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(
+                    color = palette.ink
+                ),
                 colors = TextFieldDefaults.colors(
+                    focusedContainerColor = palette.inputFill,
+                    unfocusedContainerColor = palette.inputFill,
+                    focusedTextColor = palette.ink,
+                    unfocusedTextColor = palette.ink,
+                    cursorColor = palette.accent,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent,
@@ -389,10 +432,50 @@ private fun Composer(
             Button(
                 onClick = onPost,
                 enabled = text.isNotBlank(),
-                contentPadding = ButtonDefaults.ContentPadding
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics { contentDescription = "Post" },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = palette.accent,
+                    disabledContainerColor = palette.accent.copy(alpha = 0.35f)
+                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
             ) {
-                Text("↑")
+                androidx.compose.foundation.Image(
+                    painter = painterResource(R.drawable.ic_send_soft),
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp)
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun FutureActionButton(
+    drawableRes: Int,
+    contentDescription: String,
+    palette: LocalhostPalette
+) {
+    Surface(
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                this.contentDescription = "$contentDescription, coming soon"
+            },
+        shape = CircleShape,
+        color = palette.accent.copy(alpha = 0.72f),
+        tonalElevation = 0.dp
+    ) {
+        androidx.compose.foundation.layout.Box(
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(drawableRes),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }

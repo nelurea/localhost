@@ -151,6 +151,11 @@ fun HomeScreen(
                     }
                 },
                 palette = palette,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            BottomNavigationBar(
+                palette = palette,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
@@ -304,6 +309,88 @@ private fun formatDateLabel(
                 "yyyy/M/d"
             }
             date.format(DateTimeFormatter.ofPattern(pattern))
+        }
+    }
+}
+
+@Composable
+private fun BottomNavigationBar(
+    palette: LocalhostPalette,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(
+            start = 10.dp,
+            end = 10.dp,
+            bottom = 6.dp
+        ),
+        shape = RoundedCornerShape(22.dp),
+        color = palette.composerGlass,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            BottomNavigationItem(
+                drawableRes = R.drawable.ic_home_soft,
+                contentDescription = "Home",
+                selected = true,
+                palette = palette,
+                modifier = Modifier.weight(1f)
+            )
+            BottomNavigationItem(
+                drawableRes = R.drawable.ic_search_soft,
+                contentDescription = "Search",
+                selected = false,
+                palette = palette,
+                modifier = Modifier.weight(1f)
+            )
+            BottomNavigationItem(
+                drawableRes = R.drawable.ic_settings_soft,
+                contentDescription = "Settings",
+                selected = false,
+                palette = palette,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun BottomNavigationItem(
+    drawableRes: Int,
+    contentDescription: String,
+    selected: Boolean,
+    palette: LocalhostPalette,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(17.dp),
+        color = if (selected) {
+            palette.accent.copy(alpha = 0.18f)
+        } else {
+            Color.Transparent
+        },
+        tonalElevation = 0.dp
+    ) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp)
+                .semantics {
+                    this.contentDescription = contentDescription
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Image(
+                painter = painterResource(drawableRes),
+                contentDescription = null,
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }

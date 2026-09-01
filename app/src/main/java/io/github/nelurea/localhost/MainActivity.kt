@@ -5,7 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,9 +36,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nelurea.localhost.data.DraftStore
@@ -86,13 +93,27 @@ fun HomeScreen(
     onPost: (String, () -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    val palette = localhostPalette()
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .imePadding()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        palette.canvasTop,
+                        palette.canvasBottom
+                    )
+                )
+            )
     ) {
-        val groupedPosts = posts.groupBy { postDate(it.createdAt) }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .imePadding()
+        ) {
+            val groupedPosts = posts.groupBy { postDate(it.createdAt) }
 
         LazyColumn(
             modifier = Modifier
@@ -115,20 +136,21 @@ fun HomeScreen(
             }
         }
 
-        Composer(
-            text = draft,
-            onTextChange = onDraftChange,
-            onPost = {
-                val post = draft.trim()
+            Composer(
+                text = draft,
+                onTextChange = onDraftChange,
+                onPost = {
+                    val post = draft.trim()
 
-                if (post.isNotEmpty()) {
-                    onPost(post) {}
-                }
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-        )
+                    if (post.isNotEmpty()) {
+                        onPost(post) {}
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+            )
+        }
     }
 }
 
@@ -138,24 +160,59 @@ private fun DayGroup(
     posts: List<PostEntity>,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    val palette = localhostPalette()
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(horizontal = 10.dp)
+            .border(
+                width = 1.dp,
+                color = palette.groupBorder,
+                shape = RoundedCornerShape(18.dp)
+            ),
+        shape = RoundedCornerShape(18.dp),
+        color = palette.groupGlass,
+        tonalElevation = 0.dp
     ) {
-        Text(
-            text = formatDateLabel(date),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(
             modifier = Modifier.padding(
-                start = 4.dp,
-                bottom = 2.dp
-            )
-        )
+                horizontal = 8.dp,
+                vertical = 8.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = 8.dp,
+                        end = 8.dp,
+                        top = 3.dp,
+                        bottom = 1.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(7.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    color = palette.warmAccent
+                ) {}
 
-        posts.forEach { post ->
-            TimelinePost(post = post)
+                Spacer(Modifier.width(8.dp))
+
+                Text(
+                    text = formatDateLabel(date),
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = palette.metaStrong
+                )
+            }
+
+            posts.forEach { post ->
+                TimelinePost(post = post)
+            }
         }
     }
 }
@@ -165,10 +222,18 @@ private fun TimelinePost(
     post: PostEntity,
     modifier: Modifier = Modifier
 ) {
+    val palette = localhostPalette()
+
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = palette.postBorder,
+                shape = RoundedCornerShape(13.dp)
+            ),
+        shape = RoundedCornerShape(13.dp),
+        color = palette.postPaper,
         tonalElevation = 0.dp
     ) {
         Column(
@@ -180,9 +245,10 @@ private fun TimelinePost(
             Text(
                 text = formatPostTime(post.createdAt),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = palette.meta
             )
 
             Text(
@@ -190,10 +256,10 @@ private fun TimelinePost(
                 style = MaterialTheme.typography.bodyLarge.copy(
                     lineHeight = 24.sp
                 ),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = palette.ink,
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .padding(top = 4.dp)
+                    .fillMaxWidth(0.90f)
+                    .padding(top = 5.dp)
             )
         }
     }
@@ -237,8 +303,53 @@ private fun formatDateLabel(
     }
 }
 
+private data class LocalhostPalette(
+    val canvasTop: Color,
+    val canvasBottom: Color,
+    val groupGlass: Color,
+    val groupBorder: Color,
+    val postPaper: Color,
+    val postBorder: Color,
+    val ink: Color,
+    val meta: Color,
+    val metaStrong: Color,
+    val warmAccent: Color
+)
+
+@Composable
+private fun localhostPalette(): LocalhostPalette {
+    return if (isSystemInDarkTheme()) {
+        LocalhostPalette(
+            canvasTop = Color(0xFF2C2B33),
+            canvasBottom = Color(0xFF333540),
+            groupGlass = Color(0xE63B3C48),
+            groupBorder = Color(0x665C5D70),
+            postPaper = Color(0xF2464652),
+            postBorder = Color(0x665F6070),
+            ink = Color(0xFFF0ECF3),
+            meta = Color(0xFFD3CCD9),
+            metaStrong = Color(0xFFE2DCE8),
+            warmAccent = Color(0xFFD6A098)
+        )
+    } else {
+        LocalhostPalette(
+            canvasTop = Color(0xFFF2F1F6),
+            canvasBottom = Color(0xFFE8EEF2),
+            groupGlass = Color(0xCCDEE5EE),
+            groupBorder = Color(0x99CDD5DF),
+            postPaper = Color(0xF7FAF9FB),
+            postBorder = Color(0x99D8D7E0),
+            ink = Color(0xFF4E4A55),
+            meta = Color(0xFF6E6878),
+            metaStrong = Color(0xFF5C5667),
+            warmAccent = Color(0xFFC98F87)
+        )
+    }
+}
+
 @Composable
 private fun Composer(
+
     text: String,
     onTextChange: (String) -> Unit,
     onPost: () -> Unit,

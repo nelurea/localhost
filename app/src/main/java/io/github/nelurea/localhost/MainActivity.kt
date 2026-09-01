@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -89,6 +90,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     posts: List<PostEntity>,
@@ -119,26 +121,35 @@ fun HomeScreen(
         ) {
             val groupedPosts = posts.groupBy { postDate(it.createdAt) }
 
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            contentPadding = PaddingValues(
-                top = 10.dp,
-                bottom = 12.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(
-                items = groupedPosts.entries.toList(),
-                key = { it.key.toEpochDay() }
-            ) { (date, dayPosts) ->
-                DayGroup(
-                    date = date,
-                    posts = dayPosts
-                )
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentPadding = PaddingValues(
+                    top = 10.dp,
+                    bottom = 12.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                groupedPosts.forEach { (date, dayPosts) ->
+                    stickyHeader(
+                        key = "date-${date.toEpochDay()}"
+                    ) {
+                        StickyDateHeader(
+                            date = date,
+                            palette = palette
+                        )
+                    }
+
+                    item(
+                        key = "day-${date.toEpochDay()}"
+                    ) {
+                        DayGroup(
+                            posts = dayPosts
+                        )
+                    }
+                }
             }
-        }
 
             Composer(
                 text = draft,
@@ -165,8 +176,47 @@ fun HomeScreen(
 }
 
 @Composable
-private fun DayGroup(
+private fun StickyDateHeader(
     date: LocalDate,
+    palette: LocalhostPalette,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp),
+        shape = RoundedCornerShape(14.dp),
+        color = palette.groupGlass.copy(alpha = 0.98f),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 14.dp,
+                vertical = 8.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(7.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = palette.warmAccent
+            ) {}
+
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = formatDateLabel(date),
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = palette.metaStrong
+            )
+        }
+    }
+}
+
+@Composable
+private fun DayGroup(
     posts: List<PostEntity>,
     modifier: Modifier = Modifier
 ) {
@@ -192,34 +242,6 @@ private fun DayGroup(
             ),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = 8.dp,
-                        end = 8.dp,
-                        top = 3.dp,
-                        bottom = 1.dp
-                    ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    modifier = Modifier.size(7.dp),
-                    shape = androidx.compose.foundation.shape.CircleShape,
-                    color = palette.warmAccent
-                ) {}
-
-                Spacer(Modifier.width(8.dp))
-
-                Text(
-                    text = formatDateLabel(date),
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = palette.metaStrong
-                )
-            }
-
             posts.forEach { post ->
                 TimelinePost(post = post)
             }

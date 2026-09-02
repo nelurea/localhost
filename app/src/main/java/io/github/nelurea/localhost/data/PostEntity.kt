@@ -1,4 +1,4 @@
-package io.github.nelurea.localhost.data
+﻿package io.github.nelurea.localhost.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -7,5 +7,6 @@ import androidx.room.PrimaryKey
 data class PostEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val createdAt: Long,
-    val text: String
+    val text: String,
+    val deletedAt: Long? = null
 )

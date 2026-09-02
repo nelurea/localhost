@@ -1,4 +1,4 @@
-package io.github.nelurea.localhost.data
+﻿package io.github.nelurea.localhost.data
 
 class PostRepository(
     private val postDao: PostDao
@@ -12,5 +12,16 @@ class PostRepository(
                 text = text
             )
         )
+    }
+
+    suspend fun deletePost(postId: Long) {
+        postDao.markDeleted(
+            postId = postId,
+            deletedAt = System.currentTimeMillis()
+        )
+    }
+
+    suspend fun restorePost(postId: Long) {
+        postDao.restore(postId)
     }
 }

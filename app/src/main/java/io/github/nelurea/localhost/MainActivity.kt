@@ -5,6 +5,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -29,24 +35,30 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateSetOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -62,7 +74,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
@@ -110,23 +122,93 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
 
-    val deletePostWithUndo: (Long) -> Unit = { postId ->
-        onDeletePost(postId)
+    // Only the most recently swiped post gets the three-second
+    // cancellation window.
+    var pendingDeletedPost by remember {
+        mutableStateOf<PostEntity?>(null)
+    }
 
-        coroutineScope.launch {
-            val result = snackbarHostState.showSnackbar(
-                message = "Post deleted",
-                actionLabel = "Undo",
-                withDismissAction = true
-            )
+    var animateNextPost by remember {
+        mutableStateOf(false)
+    }
 
-            if (result == SnackbarResult.ActionPerformed) {
-                onRestorePost(postId)
+    var entrancePostId by remember {
+        mutableStateOf<Long?>(null)
+    }
+
+    LaunchedEffect(animateNextPost, posts.firstOrNull()?.id) {
+        if (animateNextPost) {
+            posts.firstOrNull()?.let { newestPost ->
+                entrancePostId = newestPost.id
+                animateNextPost = false
             }
         }
+    }
+
+    // A post can remain in the Room Flow for a brief moment after
+    // deletePost() is called. Keep committed IDs hidden during that gap
+    // so deleted cards never flash back into the timeline.
+    val committingDeletedPostIds = remember {
+        mutableStateSetOf<Long>()
+    }
+
+    LaunchedEffect(posts) {
+        val visibleIds = posts
+            .mapTo(mutableSetOf()) { it.id }
+
+        committingDeletedPostIds
+            .filter { it !in visibleIds }
+            .forEach { postId ->
+                committingDeletedPostIds.remove(postId)
+            }
+    }
+
+    // Start the actual delete only after the three-second grace period.
+    LaunchedEffect(pendingDeletedPost?.id) {
+        val pendingPost =
+            pendingDeletedPost ?: return@LaunchedEffect
+
+        delay(3_000)
+
+        if (pendingDeletedPost?.id == pendingPost.id) {
+            committingDeletedPostIds.add(pendingPost.id)
+            pendingDeletedPost = null
+            onDeletePost(pendingPost.id)
+        }
+    }
+
+    val timelinePosts = buildList {
+        posts
+            .filterNot { it.id in committingDeletedPostIds }
+            .forEach { add(it) }
+
+        pendingDeletedPost?.let { pendingPost ->
+            if (none { it.id == pendingPost.id }) {
+                add(pendingPost)
+            }
+        }
+    }.sortedWith(
+        compareByDescending<PostEntity> { it.createdAt }
+            .thenByDescending { it.id }
+    )
+
+    val deletePost: (PostEntity) -> Unit = { post ->
+        pendingDeletedPost?.let { previousPending ->
+            if (previousPending.id != post.id) {
+                // A new delete replaces the previous Undo candidate.
+                // Commit the older delete immediately.
+                committingDeletedPostIds.add(previousPending.id)
+                onDeletePost(previousPending.id)
+            }
+        }
+
+        pendingDeletedPost = post
+    }
+
+    val cancelPendingDelete: () -> Unit = {
+        // Nothing has been deleted from Room yet.
+        pendingDeletedPost = null
     }
 
     Box(
@@ -147,7 +229,9 @@ fun HomeScreen(
                 .statusBarsPadding()
                 .imePadding()
         ) {
-            val groupedPosts = posts.groupBy { postDate(it.createdAt) }
+            val groupedPosts = timelinePosts.groupBy {
+                postDate(it.createdAt)
+            }
 
             LazyColumn(
                 modifier = Modifier
@@ -157,25 +241,47 @@ fun HomeScreen(
                     top = 10.dp,
                     bottom = 12.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.Top
             ) {
-                groupedPosts.forEach { (date, dayPosts) ->
+                groupedPosts.entries.forEachIndexed { dayIndex, entry ->
+                    val date = entry.key
+                    val dayPosts = entry.value
+                    val dayTone = if (dayIndex % 2 == 0) {
+                        DayTone.Primary
+                    } else {
+                        DayTone.Secondary
+                    }
+
                     stickyHeader(
                         key = "date-${date.toEpochDay()}"
                     ) {
                         StickyDateHeader(
                             date = date,
-                            palette = palette
+                            palette = palette,
+                            dayTone = dayTone
                         )
                     }
 
-                    item(
-                        key = "day-${date.toEpochDay()}"
-                    ) {
-                        DayGroup(
-                            posts = dayPosts,
-                            onDeletePost = deletePostWithUndo
-                        )
+                    dayPosts.forEachIndexed { postIndex, post ->
+                        item(
+                            key = post.id
+                        ) {
+                            TimelinePostContainer(
+                                post = post,
+                                pendingDelete =
+                                    post.id == pendingDeletedPost?.id,
+                                onDelete = {
+                                    deletePost(post)
+                                },
+                                onRestore = cancelPendingDelete,
+                                dayTone = dayTone,
+                                firstInDay = postIndex == 0,
+                                lastInDay =
+                                    postIndex == dayPosts.lastIndex,
+                                animateEntrance =
+                                    post.id == entrancePostId
+                            )
+                        }
                     }
                 }
             }
@@ -187,7 +293,9 @@ fun HomeScreen(
                     val post = draft.trim()
 
                     if (post.isNotEmpty()) {
-                        onPost(post) {}
+                        onPost(post) {
+                            animateNextPost = true
+                        }
                     }
                 },
                 palette = palette,
@@ -201,41 +309,48 @@ fun HomeScreen(
                     .navigationBarsPadding()
             )
         }
-
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .padding(
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = 136.dp
-                )
-        )
     }
+}
+private enum class DayTone {
+    Primary,
+    Secondary
 }
 
 @Composable
 private fun StickyDateHeader(
     date: LocalDate,
     palette: LocalhostPalette,
+    dayTone: DayTone,
     modifier: Modifier = Modifier
 ) {
+    val dayBackground = when (dayTone) {
+        DayTone.Primary -> palette.dayGroupPrimary
+        DayTone.Secondary -> palette.dayGroupSecondary
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp),
-        shape = RoundedCornerShape(14.dp),
-        color = palette.groupGlass.copy(alpha = 0.98f),
+            .padding(
+                start = 10.dp,
+                top = 10.dp,
+                end = 10.dp
+            ),
+        shape = RoundedCornerShape(
+            topStart = 18.dp,
+            topEnd = 18.dp,
+            bottomStart = 0.dp,
+            bottomEnd = 0.dp
+        ),
+        color = dayBackground,
         tonalElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = 14.dp,
-                vertical = 8.dp
+                start = 14.dp,
+                top = 10.dp,
+                end = 14.dp,
+                bottom = 7.dp
             ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -257,55 +372,318 @@ private fun StickyDateHeader(
         }
     }
 }
-
 @Composable
-private fun DayGroup(
-    posts: List<PostEntity>,
-    onDeletePost: (Long) -> Unit,
+private fun TimelinePostContainer(
+    post: PostEntity,
+    pendingDelete: Boolean,
+    onDelete: () -> Unit,
+    onRestore: () -> Unit,
+    dayTone: DayTone,
+    firstInDay: Boolean,
+    lastInDay: Boolean,
+    animateEntrance: Boolean,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
 
-    Surface(
+    val dayBackground = when (dayTone) {
+        DayTone.Primary -> palette.dayGroupPrimary
+        DayTone.Secondary -> palette.dayGroupSecondary
+    }
+
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp)
-            .border(
-                width = 1.dp,
-                color = palette.groupBorder,
-                shape = RoundedCornerShape(18.dp)
-            ),
-        shape = RoundedCornerShape(18.dp),
-        color = palette.groupGlass,
-        tonalElevation = 0.dp
+            .padding(
+                start = 10.dp,
+                end = 10.dp,
+                bottom = if (lastInDay) 10.dp else 0.dp
+            )
+            .background(
+                color = dayBackground,
+                shape = RoundedCornerShape(
+                    topStart = 0.dp,
+                    topEnd = 0.dp,
+                    bottomStart = if (lastInDay) 18.dp else 0.dp,
+                    bottomEnd = if (lastInDay) 18.dp else 0.dp
+                )
+            )
+            .padding(
+                start = 8.dp,
+                end = 8.dp,
+                bottom = if (lastInDay) 8.dp else 7.dp
+            )
     ) {
-        Column(
-            modifier = Modifier.padding(
-                horizontal = 8.dp,
-                vertical = 8.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            posts.forEach { post ->
+        if (animateEntrance) {
+            val visibilityState = remember(post.id) {
+                MutableTransitionState(false).apply {
+                    targetState = true
+                }
+            }
+
+            AnimatedVisibility(
+                visibleState = visibilityState,
+                enter =
+                    expandVertically(
+                        expandFrom = Alignment.Top,
+                        animationSpec = tween(
+                            durationMillis = 280,
+                            easing = FastOutSlowInEasing
+                        ),
+                        clip = true
+                    ) +
+                    fadeIn(
+                        animationSpec = tween(
+                            durationMillis = 180,
+                            delayMillis = 35
+                        )
+                    )
+            ) {
                 TimelinePost(
                     post = post,
-                    onDelete = {
-                        onDeletePost(post.id)
-                    }
+                    pendingDelete = pendingDelete,
+                    onDelete = onDelete,
+                    onRestore = onRestore
                 )
             }
+        } else {
+            TimelinePost(
+                post = post,
+                pendingDelete = pendingDelete,
+                onDelete = onDelete,
+                onRestore = onRestore
+            )
         }
+    }
+}
+@Composable
+private fun TimelinePost(
+    post: PostEntity,
+    pendingDelete: Boolean,
+    onDelete: () -> Unit,
+    onRestore: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (pendingDelete) {
+        PendingDeletePost(
+            post = post,
+            onRestore = onRestore,
+            modifier = modifier
+        )
+    } else {
+        ActiveTimelinePost(
+            post = post,
+            onDelete = onDelete,
+            modifier = modifier
+        )
     }
 }
 
 @Composable
-private fun TimelinePost(
+private fun ActiveTimelinePost(
     post: PostEntity,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
 
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onDelete()
+            }
+
+            // SwipeToDismissBox自身にはdismissさせない。
+            // pending用Composableへ切り替える。
+            false
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(
+                        label = "Delete post",
+                        action = {
+                            onDelete()
+                            true
+                        }
+                    )
+                )
+            },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true,
+        backgroundContent = {
+            when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                color = MaterialTheme.colorScheme.error,
+                                shape = RoundedCornerShape(13.dp)
+                            )
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                R.drawable.ic_delete_soft
+                            ),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onError,
+                            modifier = Modifier.size(25.dp)
+                        )
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+    ) {
+        TimelinePostSurface(
+            post = post,
+            palette = palette
+        )
+    }
+}
+
+@Composable
+private fun PendingDeletePost(
+    post: PostEntity,
+    onRestore: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = localhostPalette()
+
+    var dotCount by remember(post.id) {
+        mutableStateOf(1)
+    }
+
+    LaunchedEffect(post.id) {
+        while (true) {
+            delay(500)
+
+            dotCount =
+                if (dotCount >= 3) {
+                    1
+                } else {
+                    dotCount + 1
+                }
+        }
+    }
+
+    val restoreState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) {
+                onRestore()
+            }
+
+            false
+        }
+    )
+
+    SwipeToDismissBox(
+        state = restoreState,
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(
+                        label = "Cancel deletion",
+                        action = {
+                            onRestore()
+                            true
+                        }
+                    )
+                )
+            },
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            when (restoreState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                color = palette.accent.copy(
+                                    alpha = 0.32f
+                                ),
+                                shape = RoundedCornerShape(13.dp)
+                            )
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                R.drawable.ic_restore_soft
+                            ),
+                            contentDescription = null,
+                            tint = palette.metaStrong,
+                            modifier = Modifier.size(25.dp)
+                        )
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.error.copy(
+                        alpha = 0.38f
+                    ),
+                    shape = RoundedCornerShape(13.dp)
+                ),
+            shape = RoundedCornerShape(13.dp),
+            color = MaterialTheme.colorScheme.errorContainer.copy(
+                alpha = 0.22f
+            ),
+            tonalElevation = 0.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(
+                    horizontal = 16.dp,
+                    vertical = 12.dp
+                )
+            ) {
+                Text(
+                    text = "Deleting" + ".".repeat(dotCount),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = MaterialTheme.colorScheme.error
+                )
+
+                Text(
+                    text = post.text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 24.sp
+                    ),
+                    color = palette.meta,
+                    modifier = Modifier
+                        .fillMaxWidth(0.90f)
+                        .padding(top = 5.dp)
+                )
+            }
+        }
+    }
+}
+@Composable
+private fun TimelinePostSurface(
+    post: PostEntity,
+    palette: LocalhostPalette,
+    modifier: Modifier = Modifier
+) {
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -324,34 +702,14 @@ private fun TimelinePost(
                 vertical = 12.dp
             )
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = formatPostTime(post.createdAt),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    color = palette.meta,
-                    modifier = Modifier.weight(1f)
-                )
-
-                TextButton(
-                    onClick = onDelete,
-                    contentPadding = PaddingValues(
-                        horizontal = 8.dp,
-                        vertical = 0.dp
-                    )
-                ) {
-                    Text(
-                        text = "Delete",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = palette.meta
-                    )
-                }
-            }
+            Text(
+                text = formatPostTime(post.createdAt),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = palette.meta
+            )
 
             Text(
                 text = post.text,
@@ -366,7 +724,6 @@ private fun TimelinePost(
         }
     }
 }
-
 private fun postDate(
     createdAt: Long,
     zoneId: ZoneId = ZoneId.systemDefault()
@@ -495,6 +852,8 @@ private data class LocalhostPalette(
     val canvasBottom: Color,
     val groupGlass: Color,
     val groupBorder: Color,
+    val dayGroupPrimary: Color,
+    val dayGroupSecondary: Color,
     val postPaper: Color,
     val postBorder: Color,
     val composerGlass: Color,
@@ -514,6 +873,8 @@ private fun localhostPalette(): LocalhostPalette {
             canvasBottom = Color(0xFF333540),
             groupGlass = Color(0xE63B3C48),
             groupBorder = Color(0x665C5D70),
+            dayGroupPrimary = Color(0xFF343A48),
+            dayGroupSecondary = Color(0xFF443A48),
             postPaper = Color(0xF2464652),
             postBorder = Color(0x665F6070),
             composerGlass = Color(0xF2383843),
@@ -530,6 +891,8 @@ private fun localhostPalette(): LocalhostPalette {
             canvasBottom = Color(0xFFE8EEF2),
             groupGlass = Color(0xCCDEE5EE),
             groupBorder = Color(0x99CDD5DF),
+            dayGroupPrimary = Color(0xFFDCE8F2),
+            dayGroupSecondary = Color(0xFFEADDEA),
             postPaper = Color(0xF7FAF9FB),
             postBorder = Color(0x99D8D7E0),
             composerGlass = Color(0xF2F0EFF4),

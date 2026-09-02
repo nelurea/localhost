@@ -1,4 +1,4 @@
-﻿package io.github.nelurea.localhost
+package io.github.nelurea.localhost
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -24,28 +24,33 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nelurea.localhost.data.DraftStore
@@ -57,6 +62,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
@@ -83,7 +89,9 @@ class MainActivity : ComponentActivity() {
                     onDraftChange = homeViewModel::onDraftChange,
                     onPost = { text, onSaved ->
                         homeViewModel.addPost(text, onSaved)
-                    }
+                    },
+                    onDeletePost = homeViewModel::deletePost,
+                    onRestorePost = homeViewModel::restorePost
                 )
             }
         }
@@ -97,9 +105,29 @@ fun HomeScreen(
     draft: String,
     onDraftChange: (String) -> Unit,
     onPost: (String, () -> Unit) -> Unit,
+    onDeletePost: (Long) -> Unit,
+    onRestorePost: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    val deletePostWithUndo: (Long) -> Unit = { postId ->
+        onDeletePost(postId)
+
+        coroutineScope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "Post deleted",
+                actionLabel = "Undo",
+                withDismissAction = true
+            )
+
+            if (result == SnackbarResult.ActionPerformed) {
+                onRestorePost(postId)
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -145,7 +173,8 @@ fun HomeScreen(
                         key = "day-${date.toEpochDay()}"
                     ) {
                         DayGroup(
-                            posts = dayPosts
+                            posts = dayPosts,
+                            onDeletePost = deletePostWithUndo
                         )
                     }
                 }
@@ -172,6 +201,20 @@ fun HomeScreen(
                     .navigationBarsPadding()
             )
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = 136.dp
+                )
+        )
     }
 }
 
@@ -198,7 +241,7 @@ private fun StickyDateHeader(
         ) {
             Surface(
                 modifier = Modifier.size(7.dp),
-                shape = androidx.compose.foundation.shape.CircleShape,
+                shape = CircleShape,
                 color = palette.warmAccent
             ) {}
 
@@ -218,6 +261,7 @@ private fun StickyDateHeader(
 @Composable
 private fun DayGroup(
     posts: List<PostEntity>,
+    onDeletePost: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
@@ -243,7 +287,12 @@ private fun DayGroup(
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             posts.forEach { post ->
-                TimelinePost(post = post)
+                TimelinePost(
+                    post = post,
+                    onDelete = {
+                        onDeletePost(post.id)
+                    }
+                )
             }
         }
     }
@@ -252,6 +301,7 @@ private fun DayGroup(
 @Composable
 private fun TimelinePost(
     post: PostEntity,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
@@ -274,14 +324,34 @@ private fun TimelinePost(
                 vertical = 12.dp
             )
         ) {
-            Text(
-                text = formatPostTime(post.createdAt),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                color = palette.meta
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatPostTime(post.createdAt),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = palette.meta,
+                    modifier = Modifier.weight(1f)
+                )
+
+                TextButton(
+                    onClick = onDelete,
+                    contentPadding = PaddingValues(
+                        horizontal = 8.dp,
+                        vertical = 0.dp
+                    )
+                ) {
+                    Text(
+                        text = "Delete",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.meta
+                    )
+                }
+            }
 
             Text(
                 text = post.text,
@@ -330,6 +400,7 @@ private fun formatDateLabel(
             } else {
                 "yyyy/M/d"
             }
+
             date.format(DateTimeFormatter.ofPattern(pattern))
         }
     }
@@ -363,6 +434,7 @@ private fun BottomNavigationBar(
                 palette = palette,
                 modifier = Modifier.weight(1f)
             )
+
             BottomNavigationItem(
                 drawableRes = R.drawable.ic_search_soft,
                 contentDescription = "Search",
@@ -370,6 +442,7 @@ private fun BottomNavigationBar(
                 palette = palette,
                 modifier = Modifier.weight(1f)
             )
+
             BottomNavigationItem(
                 drawableRes = R.drawable.ic_settings_soft,
                 contentDescription = "Settings",
@@ -399,7 +472,7 @@ private fun BottomNavigationItem(
         },
         tonalElevation = 0.dp
     ) {
-        androidx.compose.foundation.layout.Box(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 10.dp)
@@ -549,7 +622,7 @@ private fun Composer(
                     containerColor = palette.accent,
                     disabledContainerColor = palette.accent.copy(alpha = 0.35f)
                 ),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+                contentPadding = PaddingValues(0.dp)
             ) {
                 androidx.compose.foundation.Image(
                     painter = painterResource(R.drawable.ic_send_soft),
@@ -577,7 +650,7 @@ private fun FutureActionButton(
         color = palette.accent.copy(alpha = 0.72f),
         tonalElevation = 0.dp
     ) {
-        androidx.compose.foundation.layout.Box(
+        Box(
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.foundation.Image(
@@ -605,7 +678,9 @@ private fun HomeScreenPreview() {
             onDraftChange = {},
             onPost = { _, onSaved ->
                 onSaved()
-            }
+            },
+            onDeletePost = {},
+            onRestorePost = {}
         )
     }
 }

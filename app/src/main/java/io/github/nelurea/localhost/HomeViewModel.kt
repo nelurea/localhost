@@ -104,6 +104,30 @@ class HomeViewModel(
         }
     }
 
+    fun deletePost(postId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.deletePost(postId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Keep the post visible if deletion fails.
+            }
+        }
+    }
+
+    fun restorePost(postId: Long) {
+        viewModelScope.launch {
+            try {
+                repository.restorePost(postId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Keep the current persisted state if restore fails.
+            }
+        }
+    }
+
     class Factory(
         private val repository: PostRepository,
         private val draftStore: DraftStore

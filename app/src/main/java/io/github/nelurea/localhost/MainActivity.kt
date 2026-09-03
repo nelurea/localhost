@@ -1,7 +1,12 @@
-package io.github.nelurea.localhost
+﻿package io.github.nelurea.localhost
 
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -12,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -23,6 +29,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -46,6 +53,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
@@ -54,7 +62,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -66,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.nelurea.localhost.data.DraftStore
+import io.github.nelurea.localhost.data.ImageStore
 import io.github.nelurea.localhost.data.LocalhostDatabase
 import io.github.nelurea.localhost.data.PostEntity
 import io.github.nelurea.localhost.data.PostRepository
@@ -74,7 +85,10 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
@@ -82,7 +96,8 @@ class MainActivity : ComponentActivity() {
 
         HomeViewModel.Factory(
             repository = PostRepository(database.postDao()),
-            draftStore = DraftStore(applicationContext)
+            draftStore = DraftStore(applicationContext),
+            imageStore = ImageStore(applicationContext)
         )
     }
 
@@ -94,11 +109,15 @@ class MainActivity : ComponentActivity() {
             LocalhostTheme {
                 val posts by homeViewModel.posts.collectAsStateWithLifecycle()
                 val draft by homeViewModel.draft.collectAsStateWithLifecycle()
+                val selectedImagePath by
+                    homeViewModel.selectedImagePath.collectAsStateWithLifecycle()
 
                 HomeScreen(
                     posts = posts,
                     draft = draft,
+                    selectedImagePath = selectedImagePath,
                     onDraftChange = homeViewModel::onDraftChange,
+                    onSelectImage = homeViewModel::selectImage,
                     onPost = { text, onSaved ->
                         homeViewModel.addPost(text, onSaved)
                     },
@@ -115,13 +134,21 @@ class MainActivity : ComponentActivity() {
 fun HomeScreen(
     posts: List<PostEntity>,
     draft: String,
+    selectedImagePath: String?,
     onDraftChange: (String) -> Unit,
+    onSelectImage: (Uri) -> Unit,
     onPost: (String, () -> Unit) -> Unit,
     onDeletePost: (Long) -> Unit,
     onRestorePost: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let(onSelectImage)
+    }
 
     // Only the most recently swiped post gets the three-second
     // cancellation window.
@@ -288,7 +315,17 @@ fun HomeScreen(
 
             Composer(
                 text = draft,
+                selectedImagePath = selectedImagePath,
                 onTextChange = onDraftChange,
+                onAttachImage = {
+                    imagePicker.launch(
+                        PickVisualMediaRequest(
+                            ActivityResultContracts
+                                .PickVisualMedia
+                                .ImageOnly
+                        )
+                    )
+                },
                 onPost = {
                     val post = draft.trim()
 
@@ -493,8 +530,6 @@ private fun ActiveTimelinePost(
                 onDelete()
             }
 
-            // SwipeToDismissBox自身にはdismissさせない。
-            // pending用Composableへ切り替える。
             false
         }
     )
@@ -909,7 +944,9 @@ private fun localhostPalette(): LocalhostPalette {
 @Composable
 private fun Composer(
     text: String,
+    selectedImagePath: String?,
     onTextChange: (String) -> Unit,
+    onAttachImage: () -> Unit,
     onPost: () -> Unit,
     palette: LocalhostPalette,
     modifier: Modifier = Modifier
@@ -919,80 +956,169 @@ private fun Composer(
         color = palette.composerGlass,
         tonalElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier.padding(
-                horizontal = 10.dp,
-                vertical = 8.dp
-            ),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            FutureActionButton(
-                drawableRes = R.drawable.ic_add_soft,
-                contentDescription = "Attach file",
-                palette = palette
-            )
-
-            Spacer(Modifier.width(6.dp))
-
-            FutureActionButton(
-                drawableRes = R.drawable.ic_emoji_soft,
-                contentDescription = "Emoji palette",
-                palette = palette
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            TextField(
-                value = text,
-                onValueChange = onTextChange,
-                placeholder = {
-                    Text(
-                        text = "Write something…",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = palette.meta
-                    )
-                },
-                modifier = Modifier.weight(1f),
-                minLines = 1,
-                maxLines = 5,
-                shape = RoundedCornerShape(18.dp),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                    color = palette.ink
-                ),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = palette.inputFill,
-                    unfocusedContainerColor = palette.inputFill,
-                    focusedTextColor = palette.ink,
-                    unfocusedTextColor = palette.ink,
-                    cursorColor = palette.accent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                    errorIndicatorColor = Color.Transparent
-                )
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            Button(
-                onClick = onPost,
-                enabled = text.isNotBlank(),
-                modifier = Modifier
-                    .size(48.dp)
-                    .semantics { contentDescription = "Post" },
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = palette.accent,
-                    disabledContainerColor = palette.accent.copy(alpha = 0.35f)
-                ),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(R.drawable.ic_send_soft),
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp)
+        Column {
+            selectedImagePath?.let { imagePath ->
+                ComposerImagePreview(
+                    imagePath = imagePath,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = 10.dp,
+                            top = 8.dp,
+                            end = 10.dp
+                        )
                 )
             }
+
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = 10.dp,
+                    vertical = 8.dp
+                ),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                ComposerActionButton(
+                    drawableRes = R.drawable.ic_add_soft,
+                    contentDescription = "Attach image",
+                    palette = palette,
+                    onClick = onAttachImage
+                )
+
+                Spacer(Modifier.width(6.dp))
+
+                FutureActionButton(
+                    drawableRes = R.drawable.ic_emoji_soft,
+                    contentDescription = "Emoji palette",
+                    palette = palette
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                TextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    placeholder = {
+                        Text(
+                            text = "Write something…",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = palette.meta
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    minLines = 1,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(18.dp),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = palette.ink
+                    ),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = palette.inputFill,
+                        unfocusedContainerColor = palette.inputFill,
+                        focusedTextColor = palette.ink,
+                        unfocusedTextColor = palette.ink,
+                        cursorColor = palette.accent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        errorIndicatorColor = Color.Transparent
+                    )
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                Button(
+                    onClick = onPost,
+                    enabled = text.isNotBlank(),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics {
+                            contentDescription = "Post"
+                        },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = palette.accent,
+                        disabledContainerColor =
+                            palette.accent.copy(alpha = 0.35f)
+                    ),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Image(
+                        painter = painterResource(
+                            R.drawable.ic_send_soft
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComposerImagePreview(
+    imagePath: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember(imagePath) {
+        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(
+            null
+        )
+    }
+
+    LaunchedEffect(imagePath) {
+        bitmap = withContext(Dispatchers.IO) {
+            BitmapFactory
+                .decodeFile(imagePath)
+                ?.asImageBitmap()
+        }
+    }
+
+    bitmap?.let { image ->
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(14.dp),
+            tonalElevation = 0.dp
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = "Selected image",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(132.dp),
+                contentScale = ContentScale.Crop
+            )
+        }
+    }
+}
+
+@Composable
+private fun ComposerActionButton(
+    drawableRes: Int,
+    contentDescription: String,
+    palette: LocalhostPalette,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .size(48.dp)
+            .semantics {
+                this.contentDescription =
+                    contentDescription
+            },
+        shape = CircleShape,
+        color = palette.accent.copy(alpha = 0.72f),
+        tonalElevation = 0.dp
+    ) {
+        Box(
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                painter = painterResource(drawableRes),
+                contentDescription = null,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }
@@ -1007,7 +1133,8 @@ private fun FutureActionButton(
         modifier = Modifier
             .size(48.dp)
             .semantics {
-                this.contentDescription = "$contentDescription, coming soon"
+                this.contentDescription =
+                    "$contentDescription, coming soon"
             },
         shape = CircleShape,
         color = palette.accent.copy(alpha = 0.72f),
@@ -1016,7 +1143,7 @@ private fun FutureActionButton(
         Box(
             contentAlignment = Alignment.Center
         ) {
-            androidx.compose.foundation.Image(
+            Image(
                 painter = painterResource(drawableRes),
                 contentDescription = null,
                 modifier = Modifier.size(22.dp)
@@ -1024,7 +1151,6 @@ private fun FutureActionButton(
         }
     }
 }
-
 @Preview(showBackground = true)
 @Composable
 private fun HomeScreenPreview() {
@@ -1038,7 +1164,9 @@ private fun HomeScreenPreview() {
                 )
             ),
             draft = "",
+            selectedImagePath = null,
             onDraftChange = {},
+            onSelectImage = {},
             onPost = { _, onSaved ->
                 onSaved()
             },
@@ -1047,3 +1175,7 @@ private fun HomeScreenPreview() {
         )
     }
 }
+
+
+
+

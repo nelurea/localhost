@@ -1,9 +1,11 @@
 ﻿package io.github.nelurea.localhost
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.nelurea.localhost.data.DraftStore
+import io.github.nelurea.localhost.data.ImageStore
 import io.github.nelurea.localhost.data.PostEntity
 import io.github.nelurea.localhost.data.PostRepository
 import kotlinx.coroutines.CancellationException
@@ -20,7 +22,8 @@ import kotlinx.coroutines.withContext
 
 class HomeViewModel(
     private val repository: PostRepository,
-    private val draftStore: DraftStore
+    private val draftStore: DraftStore,
+    private val imageStore: ImageStore
 ) : ViewModel() {
     val posts: StateFlow<List<PostEntity>> = repository.posts.stateIn(
         scope = viewModelScope,
@@ -30,6 +33,12 @@ class HomeViewModel(
 
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft.asStateFlow()
+
+    private val _selectedImagePath =
+        MutableStateFlow<String?>(null)
+
+    val selectedImagePath: StateFlow<String?> =
+        _selectedImagePath.asStateFlow()
 
     private var saveDraftJob: Job? = null
     private var draftChangedSinceInit = false
@@ -66,6 +75,32 @@ class HomeViewModel(
                 throw error
             } catch (_: Exception) {
                 // Keep the current in-memory draft if persistence fails.
+            }
+        }
+    }
+
+    fun selectImage(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val importedPath = withContext(Dispatchers.IO) {
+                    imageStore.importImage(uri)
+                }
+
+                val previousPath = _selectedImagePath.value
+                _selectedImagePath.value = importedPath
+
+                if (
+                    previousPath != null &&
+                    previousPath != importedPath
+                ) {
+                    withContext(Dispatchers.IO) {
+                        imageStore.delete(previousPath)
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Keep the current draft and selected image unchanged.
             }
         }
     }
@@ -130,12 +165,21 @@ class HomeViewModel(
 
     class Factory(
         private val repository: PostRepository,
-        private val draftStore: DraftStore
+        private val draftStore: DraftStore,
+        private val imageStore: ImageStore
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            if (modelClass.isAssignableFrom(HomeViewModel::class.java)) {
-                return HomeViewModel(repository, draftStore) as T
+            if (
+                modelClass.isAssignableFrom(
+                    HomeViewModel::class.java
+                )
+            ) {
+                return HomeViewModel(
+                    repository,
+                    draftStore,
+                    imageStore
+                ) as T
             }
 
             throw IllegalArgumentException(

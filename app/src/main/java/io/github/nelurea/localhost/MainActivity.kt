@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -113,15 +115,15 @@ class MainActivity : ComponentActivity() {
             LocalhostTheme {
                 val posts by homeViewModel.posts.collectAsStateWithLifecycle()
                 val draft by homeViewModel.draft.collectAsStateWithLifecycle()
-                val selectedImagePath by
-                    homeViewModel.selectedImagePath.collectAsStateWithLifecycle()
+                val selectedImagePaths by
+                    homeViewModel.selectedImagePaths.collectAsStateWithLifecycle()
 
                 HomeScreen(
                     posts = posts,
                     draft = draft,
-                    selectedImagePath = selectedImagePath,
+                    selectedImagePaths = selectedImagePaths,
                     onDraftChange = homeViewModel::onDraftChange,
-                    onSelectImage = homeViewModel::selectImage,
+                    onSelectImages = homeViewModel::selectImages,
                     onRemoveSelectedImage =
                         homeViewModel::removeSelectedImage,
                     onPost = { text, onSaved ->
@@ -140,10 +142,10 @@ class MainActivity : ComponentActivity() {
 fun HomeScreen(
     posts: List<PostEntity>,
     draft: String,
-    selectedImagePath: String?,
+    selectedImagePaths: List<String>,
     onDraftChange: (String) -> Unit,
-    onSelectImage: (Uri) -> Unit,
-    onRemoveSelectedImage: () -> Unit,
+    onSelectImages: (List<Uri>) -> Unit,
+    onRemoveSelectedImage: (String) -> Unit,
     onPost: (String, () -> Unit) -> Unit,
     onDeletePost: (Long) -> Unit,
     onRestorePost: (Long) -> Unit,
@@ -152,9 +154,13 @@ fun HomeScreen(
     val palette = localhostPalette()
 
     val imagePicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri?.let(onSelectImage)
+        contract = ActivityResultContracts.PickMultipleVisualMedia(
+            maxItems = 10
+        )
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            onSelectImages(uris)
+        }
     }
 
     // Only the most recently swiped post gets the three-second
@@ -322,7 +328,7 @@ fun HomeScreen(
 
             Composer(
                 text = draft,
-                selectedImagePath = selectedImagePath,
+                selectedImagePaths = selectedImagePaths,
                 onTextChange = onDraftChange,
                 onRemoveImage = onRemoveSelectedImage,
                 onAttachImage = {
@@ -339,7 +345,7 @@ fun HomeScreen(
 
                     if (
                         post.isNotEmpty() ||
-                        selectedImagePath != null
+                        selectedImagePaths.isNotEmpty()
                     ) {
                         onPost(post) {
                             animateNextPost = true
@@ -1008,9 +1014,9 @@ private fun localhostPalette(): LocalhostPalette {
 @Composable
 private fun Composer(
     text: String,
-    selectedImagePath: String?,
+    selectedImagePaths: List<String>,
     onTextChange: (String) -> Unit,
-    onRemoveImage: () -> Unit,
+    onRemoveImage: (String) -> Unit,
     onAttachImage: () -> Unit,
     onPost: () -> Unit,
     palette: LocalhostPalette,
@@ -1022,19 +1028,30 @@ private fun Composer(
         tonalElevation = 0.dp
     ) {
         Column {
-            selectedImagePath?.let { imagePath ->
-                ComposerImagePreview(
-                    imagePath = imagePath,
-                    onRemove = onRemoveImage,
-                    palette = palette,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = 10.dp,
-                            top = 8.dp,
-                            end = 10.dp
+            if (selectedImagePaths.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        start = 10.dp,
+                        top = 8.dp,
+                        end = 10.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = selectedImagePaths,
+                        key = { it }
+                    ) { imagePath ->
+                        ComposerImagePreview(
+                            imagePath = imagePath,
+                            onRemove = {
+                                onRemoveImage(imagePath)
+                            },
+                            palette = palette,
+                            modifier = Modifier.size(132.dp)
                         )
-                )
+                    }
+                }
             }
 
             Row(
@@ -1097,7 +1114,7 @@ private fun Composer(
                     onClick = onPost,
                     enabled =
                         text.isNotBlank() ||
-                        selectedImagePath != null,
+                        selectedImagePaths.isNotEmpty(),
                     modifier = Modifier
                         .size(48.dp)
                         .semantics {
@@ -1150,16 +1167,14 @@ private fun ComposerImagePreview(
             modifier = modifier
         ) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxSize(),
                 shape = RoundedCornerShape(14.dp),
                 tonalElevation = 0.dp
             ) {
                 Image(
                     bitmap = image,
                     contentDescription = "Selected image",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(132.dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
             }
@@ -1266,9 +1281,9 @@ private fun HomeScreenPreview() {
                 )
             ),
             draft = "",
-            selectedImagePath = null,
+            selectedImagePaths = emptyList(),
             onDraftChange = {},
-            onSelectImage = {},
+            onSelectImages = {},
             onRemoveSelectedImage = {},
             onPost = { _, onSaved ->
                 onSaved()

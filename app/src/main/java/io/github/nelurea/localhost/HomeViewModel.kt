@@ -1,4 +1,4 @@
-﻿package io.github.nelurea.localhost
+package io.github.nelurea.localhost
 
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -34,11 +34,11 @@ class HomeViewModel(
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft.asStateFlow()
 
-    private val _selectedImagePath =
-        MutableStateFlow<String?>(null)
+    private val _selectedImagePaths =
+        MutableStateFlow<List<String>>(emptyList())
 
-    val selectedImagePath: StateFlow<String?> =
-        _selectedImagePath.asStateFlow()
+    val selectedImagePaths: StateFlow<List<String>> =
+        _selectedImagePaths.asStateFlow()
 
     private var saveDraftJob: Job? = null
     private var draftChangedSinceInit = false
@@ -79,37 +79,48 @@ class HomeViewModel(
         }
     }
 
-    fun selectImage(uri: Uri) {
+    fun selectImages(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+
+        val remainingSlots =
+            (MAX_SELECTED_IMAGES - _selectedImagePaths.value.size)
+                .coerceAtLeast(0)
+
+        if (remainingSlots == 0) return
+
+        val selectedUris = uris.take(remainingSlots)
+
         viewModelScope.launch {
+            val importedPaths = mutableListOf<String>()
+
             try {
-                val importedPath = withContext(Dispatchers.IO) {
-                    imageStore.importImage(uri)
-                }
-
-                val previousPath = _selectedImagePath.value
-                _selectedImagePath.value = importedPath
-
-                if (
-                    previousPath != null &&
-                    previousPath != importedPath
-                ) {
-                    withContext(Dispatchers.IO) {
-                        imageStore.delete(previousPath)
+                withContext(Dispatchers.IO) {
+                    selectedUris.forEach { uri ->
+                        importedPaths += imageStore.importImage(uri)
                     }
                 }
+
+                _selectedImagePaths.value =
+                    _selectedImagePaths.value + importedPaths
             } catch (error: CancellationException) {
+                withContext(Dispatchers.IO) {
+                    importedPaths.forEach(imageStore::delete)
+                }
                 throw error
             } catch (_: Exception) {
-                // Keep the current draft and selected image unchanged.
+                withContext(Dispatchers.IO) {
+                    importedPaths.forEach(imageStore::delete)
+                }
+                // Keep the current draft and previous selections unchanged.
             }
         }
     }
 
-    fun removeSelectedImage() {
-        val imagePath = _selectedImagePath.value
-            ?: return
+    fun removeSelectedImage(imagePath: String) {
+        if (imagePath !in _selectedImagePaths.value) return
 
-        _selectedImagePath.value = null
+        _selectedImagePaths.value =
+            _selectedImagePaths.value.filterNot { it == imagePath }
 
         viewModelScope.launch {
             try {
@@ -119,24 +130,25 @@ class HomeViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                // The composer state is already cleared.
+                // The composer state is already updated.
             }
         }
     }
+
     fun addPost(
         text: String,
         onSaved: () -> Unit
     ) {
         val post = text.trim()
-        val imagePath = _selectedImagePath.value
+        val imagePaths = _selectedImagePaths.value
 
-        if (post.isEmpty() && imagePath == null) return
+        if (post.isEmpty() && imagePaths.isEmpty()) return
 
         viewModelScope.launch {
             try {
                 repository.addPost(
                     text = post,
-                    imagePath = imagePath
+                    imagePaths = imagePaths
                 )
 
                 if (_draft.value.trim() == post) {
@@ -153,15 +165,15 @@ class HomeViewModel(
                     _draft.value = ""
                 }
 
-                if (_selectedImagePath.value == imagePath) {
-                    _selectedImagePath.value = null
+                if (_selectedImagePaths.value == imagePaths) {
+                    _selectedImagePaths.value = emptyList()
                 }
 
                 onSaved()
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                // Keep the draft intact if post persistence fails.
+                // Keep draft and image selections if persistence fails.
             }
         }
     }
@@ -214,6 +226,8 @@ class HomeViewModel(
             )
         }
     }
+
+    private companion object {
+        const val MAX_SELECTED_IMAGES = 10
+    }
 }
-
-

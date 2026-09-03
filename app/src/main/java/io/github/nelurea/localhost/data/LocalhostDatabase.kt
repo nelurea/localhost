@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 
 @Database(
     entities = [PostEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LocalhostDatabase : RoomDatabase() {
@@ -24,6 +24,12 @@ abstract class LocalhostDatabase : RoomDatabase() {
             )
         }
 
+        private val MIGRATION_2_3 = Migration(2, 3) { database ->
+            database.execSQL(
+                "ALTER TABLE posts ADD COLUMN imagePath TEXT"
+            )
+        }
+
         fun getInstance(context: Context): LocalhostDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -31,7 +37,10 @@ abstract class LocalhostDatabase : RoomDatabase() {
                     LocalhostDatabase::class.java,
                     "localhost.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3
+                    )
                     .build()
                     .also { instance = it }
             }

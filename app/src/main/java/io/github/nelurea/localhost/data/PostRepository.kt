@@ -5,11 +5,15 @@ class PostRepository(
 ) {
     val posts = postDao.observeAll()
 
-    suspend fun addPost(text: String) {
+    suspend fun addPost(
+        text: String,
+        imagePath: String? = null
+    ) {
         postDao.insert(
             PostEntity(
                 createdAt = System.currentTimeMillis(),
-                text = text
+                text = text,
+                imagePath = imagePath
             )
         )
     }

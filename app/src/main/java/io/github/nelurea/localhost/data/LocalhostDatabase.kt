@@ -1,4 +1,4 @@
-﻿package io.github.nelurea.localhost.data
+package io.github.nelurea.localhost.data
 
 import android.content.Context
 import androidx.room.Database
@@ -16,6 +16,7 @@ import androidx.room.migration.Migration
 )
 abstract class LocalhostDatabase : RoomDatabase() {
     abstract fun postDao(): PostDao
+    abstract fun postImageDao(): PostImageDao
 
     companion object {
         @Volatile

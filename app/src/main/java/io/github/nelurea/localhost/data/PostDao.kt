@@ -3,6 +3,7 @@
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -16,8 +17,18 @@ interface PostDao {
     )
     fun observeAll(): Flow<List<PostEntity>>
 
+    @Transaction
+    @Query(
+        """
+        SELECT * FROM posts
+        WHERE deletedAt IS NULL
+        ORDER BY createdAt DESC, id DESC
+        """
+    )
+    fun observeAllWithImages(): Flow<List<PostWithImages>>
+
     @Insert
-    suspend fun insert(post: PostEntity)
+    suspend fun insert(post: PostEntity): Long
 
     @Query(
         """

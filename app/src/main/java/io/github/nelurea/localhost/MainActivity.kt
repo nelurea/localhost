@@ -1,4 +1,4 @@
-﻿package io.github.nelurea.localhost
+package io.github.nelurea.localhost
 
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -95,7 +95,11 @@ class MainActivity : ComponentActivity() {
         val database = LocalhostDatabase.getInstance(applicationContext)
 
         HomeViewModel.Factory(
-            repository = PostRepository(database.postDao()),
+            repository = PostRepository(
+                database = database,
+                postDao = database.postDao(),
+                postImageDao = database.postImageDao()
+            ),
             draftStore = DraftStore(applicationContext),
             imageStore = ImageStore(applicationContext)
         )
@@ -1274,11 +1278,3 @@ private fun HomeScreenPreview() {
         )
     }
 }
-
-
-
-
-
-
-
-

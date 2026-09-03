@@ -105,6 +105,24 @@ class HomeViewModel(
         }
     }
 
+    fun removeSelectedImage() {
+        val imagePath = _selectedImagePath.value
+            ?: return
+
+        _selectedImagePath.value = null
+
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    imageStore.delete(imagePath)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // The composer state is already cleared.
+            }
+        }
+    }
     fun addPost(
         text: String,
         onSaved: () -> Unit
@@ -197,4 +215,5 @@ class HomeViewModel(
         }
     }
 }
+
 

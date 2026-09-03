@@ -118,6 +118,8 @@ class MainActivity : ComponentActivity() {
                     selectedImagePath = selectedImagePath,
                     onDraftChange = homeViewModel::onDraftChange,
                     onSelectImage = homeViewModel::selectImage,
+                    onRemoveSelectedImage =
+                        homeViewModel::removeSelectedImage,
                     onPost = { text, onSaved ->
                         homeViewModel.addPost(text, onSaved)
                     },
@@ -137,6 +139,7 @@ fun HomeScreen(
     selectedImagePath: String?,
     onDraftChange: (String) -> Unit,
     onSelectImage: (Uri) -> Unit,
+    onRemoveSelectedImage: () -> Unit,
     onPost: (String, () -> Unit) -> Unit,
     onDeletePost: (Long) -> Unit,
     onRestorePost: (Long) -> Unit,
@@ -317,6 +320,7 @@ fun HomeScreen(
                 text = draft,
                 selectedImagePath = selectedImagePath,
                 onTextChange = onDraftChange,
+                onRemoveImage = onRemoveSelectedImage,
                 onAttachImage = {
                     imagePicker.launch(
                         PickVisualMediaRequest(
@@ -1002,6 +1006,7 @@ private fun Composer(
     text: String,
     selectedImagePath: String?,
     onTextChange: (String) -> Unit,
+    onRemoveImage: () -> Unit,
     onAttachImage: () -> Unit,
     onPost: () -> Unit,
     palette: LocalhostPalette,
@@ -1016,6 +1021,8 @@ private fun Composer(
             selectedImagePath?.let { imagePath ->
                 ComposerImagePreview(
                     imagePath = imagePath,
+                    onRemove = onRemoveImage,
+                    palette = palette,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
@@ -1116,6 +1123,8 @@ private fun Composer(
 @Composable
 private fun ComposerImagePreview(
     imagePath: String,
+    onRemove: () -> Unit,
+    palette: LocalhostPalette,
     modifier: Modifier = Modifier
 ) {
     var bitmap by remember(imagePath) {
@@ -1133,19 +1142,50 @@ private fun ComposerImagePreview(
     }
 
     bitmap?.let { image ->
-        Surface(
-            modifier = modifier,
-            shape = RoundedCornerShape(14.dp),
-            tonalElevation = 0.dp
+        Box(
+            modifier = modifier
         ) {
-            Image(
-                bitmap = image,
-                contentDescription = "Selected image",
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                tonalElevation = 0.dp
+            ) {
+                Image(
+                    bitmap = image,
+                    contentDescription = "Selected image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            Surface(
+                onClick = onRemove,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(132.dp),
-                contentScale = ContentScale.Crop
-            )
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription = "Remove selected image"
+                    },
+                shape = CircleShape,
+                color = palette.composerGlass.copy(alpha = 0.92f),
+                tonalElevation = 0.dp
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            R.drawable.ic_delete_soft
+                        ),
+                        contentDescription = null,
+                        tint = palette.metaStrong,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -1225,6 +1265,7 @@ private fun HomeScreenPreview() {
             selectedImagePath = null,
             onDraftChange = {},
             onSelectImage = {},
+            onRemoveSelectedImage = {},
             onPost = { _, onSaved ->
                 onSaved()
             },
@@ -1233,6 +1274,9 @@ private fun HomeScreenPreview() {
         )
     }
 }
+
+
+
 
 
 

@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
@@ -924,6 +925,10 @@ private fun PostedImageViewer(
         pageCount = { imagePaths.size }
     )
 
+    var zoomedPage by remember {
+        mutableStateOf<Int?>(null)
+    }
+
     BackHandler(onBack = onDismiss)
 
     Box(
@@ -933,10 +938,19 @@ private fun PostedImageViewer(
     ) {
         HorizontalPager(
             state = pagerState,
+            userScrollEnabled =
+                zoomedPage != pagerState.currentPage,
             modifier = Modifier.fillMaxSize()
         ) { page ->
             ViewerImage(
                 imagePath = imagePaths[page],
+                onZoomActiveChange = { active ->
+                    if (active) {
+                        zoomedPage = page
+                    } else if (zoomedPage == page) {
+                        zoomedPage = null
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -971,6 +985,7 @@ private fun PostedImageViewer(
 @Composable
 private fun ViewerImage(
     imagePath: String,
+    onZoomActiveChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var bitmap by remember(imagePath) {
@@ -981,9 +996,26 @@ private fun ViewerImage(
         mutableStateOf(1f)
     }
 
-    val transformState = rememberTransformableState { zoomChange, _, _ ->
-        scale = (scale * zoomChange)
-            .coerceIn(1f, 4f)
+    var offset by remember(imagePath) {
+        mutableStateOf(Offset.Zero)
+    }
+
+    val transformState = rememberTransformableState {
+            zoomChange,
+            panChange,
+            _ ->
+
+        val nextScale =
+            (scale * zoomChange)
+                .coerceIn(1f, 4f)
+
+        scale = nextScale
+
+        if (nextScale > 1f) {
+            offset += panChange
+        } else {
+            offset = Offset.Zero
+        }
     }
 
     val settledScale by animateFloatAsState(
@@ -998,6 +1030,14 @@ private fun ViewerImage(
         label = "viewerImageScale"
     )
 
+    LaunchedEffect(scale) {
+        onZoomActiveChange(scale > 1.001f)
+
+        if (scale <= 1.001f) {
+            offset = Offset.Zero
+        }
+    }
+
     LaunchedEffect(
         transformState.isTransformInProgress,
         scale
@@ -1007,6 +1047,7 @@ private fun ViewerImage(
             scale <= 1.10f
         ) {
             scale = 1f
+            offset = Offset.Zero
         }
     }
 
@@ -1028,14 +1069,17 @@ private fun ViewerImage(
                 contentDescription = "Posted image",
                 modifier = Modifier
                     .fillMaxSize()
+                    .transformable(
+                        state = transformState,
+                        canPan = { scale > 1f },
+                        lockRotationOnZoomPan = true
+                    )
                     .graphicsLayer {
                         scaleX = settledScale
                         scaleY = settledScale
-                    }
-                    .transformable(
-                        state = transformState,
-                        lockRotationOnZoomPan = true
-                    ),
+                        translationX = offset.x
+                        translationY = offset.y
+                    },
                 contentScale = ContentScale.Fit
             )
         }

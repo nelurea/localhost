@@ -117,12 +117,15 @@ class MainActivity : ComponentActivity() {
                 val draft by homeViewModel.draft.collectAsStateWithLifecycle()
                 val selectedImagePaths by
                     homeViewModel.selectedImagePaths.collectAsStateWithLifecycle()
+                val postImagesByPostId by
+                    homeViewModel.postImagesByPostId.collectAsStateWithLifecycle()
 
                 HomeScreen(
                     posts = posts,
                     draft = draft,
                     selectedImagePaths = selectedImagePaths,
-                    onDraftChange = homeViewModel::onDraftChange,
+                                        postImagesByPostId = postImagesByPostId,
+onDraftChange = homeViewModel::onDraftChange,
                     onSelectImages = homeViewModel::selectImages,
                     onRemoveSelectedImage =
                         homeViewModel::removeSelectedImage,
@@ -143,7 +146,8 @@ fun HomeScreen(
     posts: List<PostEntity>,
     draft: String,
     selectedImagePaths: List<String>,
-    onDraftChange: (String) -> Unit,
+        postImagesByPostId: Map<Long, List<String>>,
+onDraftChange: (String) -> Unit,
     onSelectImages: (List<Uri>) -> Unit,
     onRemoveSelectedImage: (String) -> Unit,
     onPost: (String, () -> Unit) -> Unit,
@@ -308,6 +312,14 @@ fun HomeScreen(
                         ) {
                             TimelinePostContainer(
                                 post = post,
+                                imagePaths =
+                                    postImagesByPostId[post.id]
+                                        .orEmpty()
+                                        .ifEmpty {
+                                            post.imagePath
+                                                ?.let(::listOf)
+                                                .orEmpty()
+                                        },
                                 pendingDelete =
                                     post.id == pendingDeletedPost?.id,
                                 onDelete = {
@@ -429,6 +441,7 @@ private fun StickyDateHeader(
 @Composable
 private fun TimelinePostContainer(
     post: PostEntity,
+    imagePaths: List<String>,
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
@@ -495,6 +508,7 @@ private fun TimelinePostContainer(
             ) {
                 TimelinePost(
                     post = post,
+                    imagePaths = imagePaths,
                     pendingDelete = pendingDelete,
                     onDelete = onDelete,
                     onRestore = onRestore
@@ -502,8 +516,9 @@ private fun TimelinePostContainer(
             }
         } else {
             TimelinePost(
-                post = post,
-                pendingDelete = pendingDelete,
+                    post = post,
+                    imagePaths = imagePaths,
+                    pendingDelete = pendingDelete,
                 onDelete = onDelete,
                 onRestore = onRestore
             )
@@ -513,6 +528,7 @@ private fun TimelinePostContainer(
 @Composable
 private fun TimelinePost(
     post: PostEntity,
+    imagePaths: List<String>,
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
@@ -527,6 +543,7 @@ private fun TimelinePost(
     } else {
         ActiveTimelinePost(
             post = post,
+            imagePaths = imagePaths,
             onDelete = onDelete,
             modifier = modifier
         )
@@ -536,6 +553,7 @@ private fun TimelinePost(
 @Composable
 private fun ActiveTimelinePost(
     post: PostEntity,
+    imagePaths: List<String>,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -598,6 +616,7 @@ private fun ActiveTimelinePost(
     ) {
         TimelinePostSurface(
             post = post,
+            imagePaths = imagePaths,
             palette = palette
         )
     }
@@ -733,6 +752,7 @@ private fun PendingDeletePost(
 @Composable
 private fun TimelinePostSurface(
     post: PostEntity,
+    imagePaths: List<String>,
     palette: LocalhostPalette,
     modifier: Modifier = Modifier
 ) {
@@ -776,9 +796,10 @@ private fun TimelinePostSurface(
                 )
             }
 
-            post.imagePath?.let { imagePath ->
+            imagePaths.firstOrNull()?.let { imagePath ->
                 TimelineImage(
                     imagePath = imagePath,
+                    imageCount = imagePaths.size,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
@@ -796,6 +817,7 @@ private fun TimelinePostSurface(
 @Composable
 private fun TimelineImage(
     imagePath: String,
+    imageCount: Int,
     modifier: Modifier = Modifier
 ) {
     var bitmap by remember(imagePath) {
@@ -813,19 +835,45 @@ private fun TimelineImage(
     }
 
     bitmap?.let { image ->
-        Surface(
-            modifier = modifier,
-            shape = RoundedCornerShape(12.dp),
-            tonalElevation = 0.dp
-        ) {
-            Image(
-                bitmap = image,
-                contentDescription = "Attached image",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                contentScale = ContentScale.Crop
-            )
+        Box(modifier = modifier) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                tonalElevation = 0.dp
+            ) {
+                Image(
+                    bitmap = image,
+                    contentDescription = "Attached image",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(220.dp),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            if (imageCount > 1) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color.Black.copy(alpha = 0.38f),
+                    tonalElevation = 0.dp
+                ) {
+                    Text(
+                        text = "1/$imageCount",
+                        color = Color.White.copy(alpha = 0.92f),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.padding(
+                            horizontal = 8.dp,
+                            vertical = 4.dp
+                        )
+                    )
+                }
+            }
         }
     }
 }
@@ -1282,7 +1330,8 @@ private fun HomeScreenPreview() {
             ),
             draft = "",
             selectedImagePaths = emptyList(),
-            onDraftChange = {},
+                        postImagesByPostId = emptyMap(),
+onDraftChange = {},
             onSelectImages = {},
             onRemoveSelectedImage = {},
             onPost = { _, onSaved ->

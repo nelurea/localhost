@@ -20,6 +20,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.background
@@ -75,6 +77,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
@@ -102,6 +106,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 class MainActivity : ComponentActivity() {
     private val homeViewModel: HomeViewModel by viewModels {
@@ -931,12 +936,86 @@ private fun PostedImageViewer(
         mutableStateOf<Int?>(null)
     }
 
+    val verticalDismissModifier =
+        Modifier.pointerInput(
+            pagerState.currentPage,
+            zoomedPage
+        ) {
+            awaitEachGesture {
+                val down = awaitFirstDown(
+                    requireUnconsumed = false
+                )
+
+                var totalX = 0f
+                var totalY = 0f
+                var verticalDrag = false
+                var cancelled = false
+
+                while (true) {
+                    val event = awaitPointerEvent()
+
+                    val pressedCount =
+                        event.changes.count { it.pressed }
+
+                    if (pressedCount > 1) {
+                        cancelled = true
+                        break
+                    }
+
+                    val change =
+                        event.changes.firstOrNull {
+                            it.id == down.id
+                        } ?: break
+
+                    if (!change.pressed) {
+                        break
+                    }
+
+                    val delta = change.positionChange()
+
+                    totalX += delta.x
+                    totalY += delta.y
+
+                    if (!verticalDrag) {
+                        val passedSlop =
+                            abs(totalX) > viewConfiguration.touchSlop ||
+                                abs(totalY) > viewConfiguration.touchSlop
+
+                        if (passedSlop) {
+                            if (abs(totalY) > abs(totalX)) {
+                                verticalDrag = true
+                            } else {
+                                break
+                            }
+                        }
+                    }
+
+                    if (verticalDrag) {
+                        change.consume()
+                    }
+                }
+
+                val currentPageIsZoomed =
+                    zoomedPage == pagerState.currentPage
+
+                if (
+                    !cancelled &&
+                    !currentPageIsZoomed &&
+                    verticalDrag &&
+                    abs(totalY) >= 96.dp.toPx()
+                ) {
+                    onDismiss()
+                }
+            }
+        }
+
     BackHandler(onBack = onDismiss)
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.94f))
+            .then(verticalDismissModifier)
     ) {
         HorizontalPager(
             state = pagerState,

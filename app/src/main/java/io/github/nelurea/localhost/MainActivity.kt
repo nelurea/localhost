@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
@@ -19,6 +20,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -70,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -973,6 +977,39 @@ private fun ViewerImage(
         mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
     }
 
+    var scale by remember(imagePath) {
+        mutableStateOf(1f)
+    }
+
+    val transformState = rememberTransformableState { zoomChange, _, _ ->
+        scale = (scale * zoomChange)
+            .coerceIn(1f, 4f)
+    }
+
+    val settledScale by animateFloatAsState(
+        targetValue = if (
+            !transformState.isTransformInProgress &&
+            scale <= 1.10f
+        ) {
+            1f
+        } else {
+            scale
+        },
+        label = "viewerImageScale"
+    )
+
+    LaunchedEffect(
+        transformState.isTransformInProgress,
+        scale
+    ) {
+        if (
+            !transformState.isTransformInProgress &&
+            scale <= 1.10f
+        ) {
+            scale = 1f
+        }
+    }
+
     LaunchedEffect(imagePath) {
         bitmap = withContext(Dispatchers.IO) {
             BitmapFactory
@@ -989,13 +1026,21 @@ private fun ViewerImage(
             Image(
                 bitmap = image,
                 contentDescription = "Posted image",
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = settledScale
+                        scaleY = settledScale
+                    }
+                    .transformable(
+                        state = transformState,
+                        lockRotationOnZoomPan = true
+                    ),
                 contentScale = ContentScale.Fit
             )
         }
     }
 }
-
 private fun postDate(
     createdAt: Long,
     zoneId: ZoneId = ZoneId.systemDefault()

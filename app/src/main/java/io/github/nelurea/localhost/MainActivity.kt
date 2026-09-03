@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +41,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -157,7 +161,10 @@ onDraftChange: (String) -> Unit,
 ) {
     val palette = localhostPalette()
 
-    val imagePicker = rememberLauncherForActivityResult(
+    var viewerImagePaths by remember {
+        mutableStateOf<List<String>?>(null)
+    }
+val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(
             maxItems = 10
         )
@@ -320,6 +327,9 @@ onDraftChange: (String) -> Unit,
                                                 ?.let(::listOf)
                                                 .orEmpty()
                                         },
+                                onOpenImages = { imagePaths ->
+                                    viewerImagePaths = imagePaths
+                                },
                                 pendingDelete =
                                     post.id == pendingDeletedPost?.id,
                                 onDelete = {
@@ -373,6 +383,16 @@ onDraftChange: (String) -> Unit,
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
+            )
+        }
+
+
+        viewerImagePaths?.let { imagePaths ->
+            PostedImageViewer(
+                imagePaths = imagePaths,
+                onDismiss = {
+                    viewerImagePaths = null
+                }
             )
         }
     }
@@ -442,6 +462,7 @@ private fun StickyDateHeader(
 private fun TimelinePostContainer(
     post: PostEntity,
     imagePaths: List<String>,
+    onOpenImages: (List<String>) -> Unit,
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
@@ -509,8 +530,9 @@ private fun TimelinePostContainer(
                 TimelinePost(
                     post = post,
                     imagePaths = imagePaths,
+                    onOpenImages = onOpenImages,
                     pendingDelete = pendingDelete,
-                    onDelete = onDelete,
+            onDelete = onDelete,
                     onRestore = onRestore
                 )
             }
@@ -518,6 +540,7 @@ private fun TimelinePostContainer(
             TimelinePost(
                     post = post,
                     imagePaths = imagePaths,
+                    onOpenImages = onOpenImages,
                     pendingDelete = pendingDelete,
                 onDelete = onDelete,
                 onRestore = onRestore
@@ -529,6 +552,7 @@ private fun TimelinePostContainer(
 private fun TimelinePost(
     post: PostEntity,
     imagePaths: List<String>,
+    onOpenImages: (List<String>) -> Unit,
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
@@ -544,6 +568,7 @@ private fun TimelinePost(
         ActiveTimelinePost(
             post = post,
             imagePaths = imagePaths,
+            onOpenImages = onOpenImages,
             onDelete = onDelete,
             modifier = modifier
         )
@@ -554,6 +579,7 @@ private fun TimelinePost(
 private fun ActiveTimelinePost(
     post: PostEntity,
     imagePaths: List<String>,
+    onOpenImages: (List<String>) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -617,7 +643,7 @@ private fun ActiveTimelinePost(
         TimelinePostSurface(
             post = post,
             imagePaths = imagePaths,
-            palette = palette
+            onOpenImages = onOpenImages,palette = palette
         )
     }
 }
@@ -753,6 +779,7 @@ private fun PendingDeletePost(
 private fun TimelinePostSurface(
     post: PostEntity,
     imagePaths: List<String>,
+    onOpenImages: (List<String>) -> Unit,
     palette: LocalhostPalette,
     modifier: Modifier = Modifier
 ) {
@@ -800,6 +827,9 @@ private fun TimelinePostSurface(
                 TimelineImage(
                     imagePath = imagePath,
                     imageCount = imagePaths.size,
+                    onClick = {
+                        onOpenImages(imagePaths)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(
@@ -818,6 +848,7 @@ private fun TimelinePostSurface(
 private fun TimelineImage(
     imagePath: String,
     imageCount: Int,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var bitmap by remember(imagePath) {
@@ -835,7 +866,10 @@ private fun TimelineImage(
     }
 
     bitmap?.let { image ->
-        Box(modifier = modifier) {
+        Box(
+            modifier = modifier
+                .clickable(onClick = onClick)
+        ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -877,6 +911,91 @@ private fun TimelineImage(
         }
     }
 }
+@Composable
+private fun PostedImageViewer(
+    imagePaths: List<String>,
+    onDismiss: () -> Unit
+) {
+    val pagerState = rememberPagerState(
+        pageCount = { imagePaths.size }
+    )
+
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.94f))
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            ViewerImage(
+                imagePath = imagePaths[page],
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (imagePaths.size > 1) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 10.dp, end = 12.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Black.copy(alpha = 0.38f),
+                tonalElevation = 0.dp
+            ) {
+                Text(
+                    text = "${pagerState.currentPage + 1}/${imagePaths.size}",
+                    color = Color.White.copy(alpha = 0.92f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    modifier = Modifier.padding(
+                        horizontal = 8.dp,
+                        vertical = 4.dp
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ViewerImage(
+    imagePath: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember(imagePath) {
+        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    }
+
+    LaunchedEffect(imagePath) {
+        bitmap = withContext(Dispatchers.IO) {
+            BitmapFactory
+                .decodeFile(imagePath)
+                ?.asImageBitmap()
+        }
+    }
+
+    bitmap?.let { image ->
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = "Posted image",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+        }
+    }
+}
+
 private fun postDate(
     createdAt: Long,
     zoneId: ZoneId = ZoneId.systemDefault()

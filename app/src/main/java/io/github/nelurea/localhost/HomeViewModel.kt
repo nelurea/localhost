@@ -110,11 +110,16 @@ class HomeViewModel(
         onSaved: () -> Unit
     ) {
         val post = text.trim()
-        if (post.isEmpty()) return
+        val imagePath = _selectedImagePath.value
+
+        if (post.isEmpty() && imagePath == null) return
 
         viewModelScope.launch {
             try {
-                repository.addPost(post)
+                repository.addPost(
+                    text = post,
+                    imagePath = imagePath
+                )
 
                 if (_draft.value.trim() == post) {
                     saveDraftJob?.cancel()
@@ -128,6 +133,10 @@ class HomeViewModel(
                     }
 
                     _draft.value = ""
+                }
+
+                if (_selectedImagePath.value == imagePath) {
+                    _selectedImagePath.value = null
                 }
 
                 onSaved()
@@ -188,3 +197,4 @@ class HomeViewModel(
         }
     }
 }
+

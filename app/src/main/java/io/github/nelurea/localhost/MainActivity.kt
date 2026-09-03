@@ -329,7 +329,10 @@ fun HomeScreen(
                 onPost = {
                     val post = draft.trim()
 
-                    if (post.isNotEmpty()) {
+                    if (
+                        post.isNotEmpty() ||
+                        selectedImagePath != null
+                    ) {
                         onPost(post) {
                             animateNextPost = true
                         }
@@ -746,15 +749,68 @@ private fun TimelinePostSurface(
                 color = palette.meta
             )
 
-            Text(
-                text = post.text,
-                style = MaterialTheme.typography.bodyLarge.copy(
-                    lineHeight = 24.sp
-                ),
-                color = palette.ink,
+            if (post.text.isNotEmpty()) {
+                Text(
+                    text = post.text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 24.sp
+                    ),
+                    color = palette.ink,
+                    modifier = Modifier
+                        .fillMaxWidth(0.90f)
+                        .padding(top = 5.dp)
+                )
+            }
+
+            post.imagePath?.let { imagePath ->
+                TimelineImage(
+                    imagePath = imagePath,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = if (post.text.isEmpty()) {
+                                6.dp
+                            } else {
+                                10.dp
+                            }
+                        )
+                )
+            }
+        }
+    }
+}
+@Composable
+private fun TimelineImage(
+    imagePath: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember(imagePath) {
+        mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(
+            null
+        )
+    }
+
+    LaunchedEffect(imagePath) {
+        bitmap = withContext(Dispatchers.IO) {
+            BitmapFactory
+                .decodeFile(imagePath)
+                ?.asImageBitmap()
+        }
+    }
+
+    bitmap?.let { image ->
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(12.dp),
+            tonalElevation = 0.dp
+        ) {
+            Image(
+                bitmap = image,
+                contentDescription = "Attached image",
                 modifier = Modifier
-                    .fillMaxWidth(0.90f)
-                    .padding(top = 5.dp)
+                    .fillMaxWidth()
+                    .height(220.dp),
+                contentScale = ContentScale.Crop
             )
         }
     }
@@ -1028,7 +1084,9 @@ private fun Composer(
 
                 Button(
                     onClick = onPost,
-                    enabled = text.isNotBlank(),
+                    enabled =
+                        text.isNotBlank() ||
+                        selectedImagePath != null,
                     modifier = Modifier
                         .size(48.dp)
                         .semantics {
@@ -1175,6 +1233,7 @@ private fun HomeScreenPreview() {
         )
     }
 }
+
 
 
 

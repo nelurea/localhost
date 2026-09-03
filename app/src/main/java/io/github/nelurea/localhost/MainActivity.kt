@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -83,6 +84,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -1000,6 +1002,10 @@ private fun ViewerImage(
         mutableStateOf(Offset.Zero)
     }
 
+    var containerSize by remember(imagePath) {
+        mutableStateOf(IntSize.Zero)
+    }
+
     val transformState = rememberTransformableState {
             zoomChange,
             panChange,
@@ -1012,7 +1018,28 @@ private fun ViewerImage(
         scale = nextScale
 
         if (nextScale > 1f) {
-            offset += panChange
+            val maxOffsetX =
+                containerSize.width *
+                    (nextScale - 1f) /
+                    2f
+
+            val maxOffsetY =
+                containerSize.height *
+                    (nextScale - 1f) /
+                    2f
+
+            offset = Offset(
+                x = (offset.x + panChange.x)
+                    .coerceIn(
+                        -maxOffsetX,
+                        maxOffsetX
+                    ),
+                y = (offset.y + panChange.y)
+                    .coerceIn(
+                        -maxOffsetY,
+                        maxOffsetY
+                    )
+            )
         } else {
             offset = Offset.Zero
         }
@@ -1030,11 +1057,35 @@ private fun ViewerImage(
         label = "viewerImageScale"
     )
 
-    LaunchedEffect(scale) {
+    LaunchedEffect(
+        scale,
+        containerSize
+    ) {
         onZoomActiveChange(scale > 1.001f)
 
         if (scale <= 1.001f) {
             offset = Offset.Zero
+        } else {
+            val maxOffsetX =
+                containerSize.width *
+                    (scale - 1f) /
+                    2f
+
+            val maxOffsetY =
+                containerSize.height *
+                    (scale - 1f) /
+                    2f
+
+            offset = Offset(
+                x = offset.x.coerceIn(
+                    -maxOffsetX,
+                    maxOffsetX
+                ),
+                y = offset.y.coerceIn(
+                    -maxOffsetY,
+                    maxOffsetY
+                )
+            )
         }
     }
 
@@ -1069,6 +1120,9 @@ private fun ViewerImage(
                 contentDescription = "Posted image",
                 modifier = Modifier
                     .fillMaxSize()
+                    .onSizeChanged {
+                        containerSize = it
+                    }
                     .transformable(
                         state = transformState,
                         canPan = { scale > 1f },

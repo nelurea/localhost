@@ -396,17 +396,51 @@ val imagePicker = rememberLauncherForActivityResult(
                             date = date,
                             palette = palette,
                             dayTone = dayTone,
-                            onLongPress = {
-                                selectionModeActive = true
+                            onClick = {
+                                if (selectionModeActive) {
+                                    val selectableDayPosts =
+                                        dayPosts.filter { dayPost ->
+                                            dayPost.id !in
+                                                pendingDeletedPostIds
+                                        }
 
-                                dayPosts.forEach { dayPost ->
-                                    if (
-                                        dayPost.id !in
-                                        pendingDeletedPostIds
-                                    ) {
-                                        selectedPostIds.add(
-                                            dayPost.id
-                                        )
+                                    val wholeDaySelected =
+                                        selectableDayPosts.isNotEmpty() &&
+                                            selectableDayPosts.all { dayPost ->
+                                                dayPost.id in
+                                                    selectedPostIds
+                                            }
+
+                                    if (wholeDaySelected) {
+                                        selectableDayPosts.forEach {
+                                            dayPost ->
+                                            selectedPostIds.remove(
+                                                dayPost.id
+                                            )
+                                        }
+                                    } else {
+                                        selectableDayPosts.forEach {
+                                            dayPost ->
+                                            selectedPostIds.add(
+                                                dayPost.id
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            onLongPress = {
+                                if (!selectionModeActive) {
+                                    selectionModeActive = true
+
+                                    dayPosts.forEach { dayPost ->
+                                        if (
+                                            dayPost.id !in
+                                            pendingDeletedPostIds
+                                        ) {
+                                            selectedPostIds.add(
+                                                dayPost.id
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -634,6 +668,7 @@ private fun StickyDateHeader(
     date: LocalDate,
     palette: LocalhostPalette,
     dayTone: DayTone,
+    onClick: () -> Unit,
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -646,7 +681,7 @@ private fun StickyDateHeader(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
+                onClick = onClick,
                 onLongClick = onLongPress
             )
             .padding(
@@ -1016,22 +1051,33 @@ private fun PendingDeletePost(
 
             Spacer(Modifier.width(10.dp))
 
-            TextButton(
+            Surface(
                 onClick = onRestore,
-                modifier = Modifier.semantics {
-                    contentDescription =
-                        "Undo deletion"
-                }
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription =
+                            "Undo deletion"
+                    },
+                shape = CircleShape,
+                color = palette.accent.copy(
+                    alpha = 0.18f
+                ),
+                tonalElevation = 0.dp
             ) {
-                Text(
-                    text = "Undo",
-                    style =
-                        MaterialTheme.typography
-                            .labelLarge.copy(
-                                fontWeight =
-                                    FontWeight.SemiBold
-                            )
-                )
+                Box(
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            R.drawable.ic_restore_soft
+                        ),
+                        contentDescription = null,
+                        tint = palette.metaStrong,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
     }

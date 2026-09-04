@@ -26,6 +26,7 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -77,10 +78,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -198,6 +201,10 @@ val imagePicker = rememberLauncherForActivityResult(
 
     var entrancePostId by remember {
         mutableStateOf<Long?>(null)
+    }
+
+    val selectedPostIds = remember {
+        mutableStateSetOf<Long>()
     }
 
     LaunchedEffect(animateNextPost, posts.firstOrNull()?.id) {
@@ -321,7 +328,12 @@ val imagePicker = rememberLauncherForActivityResult(
                         StickyDateHeader(
                             date = date,
                             palette = palette,
-                            dayTone = dayTone
+                            dayTone = dayTone,
+                            onLongPress = {
+                                dayPosts.forEach { dayPost ->
+                                    selectedPostIds.add(dayPost.id)
+                                }
+                            }
                         )
                     }
 
@@ -348,6 +360,17 @@ val imagePicker = rememberLauncherForActivityResult(
                                     deletePost(post)
                                 },
                                 onRestore = cancelPendingDelete,
+                                selected =
+                                    post.id in selectedPostIds,
+                                selectionMode =
+                                    selectedPostIds.isNotEmpty(),
+                                onToggleSelection = {
+                                    if (post.id in selectedPostIds) {
+                                        selectedPostIds.remove(post.id)
+                                    } else {
+                                        selectedPostIds.add(post.id)
+                                    }
+                                },
                                 dayTone = dayTone,
                                 firstInDay = postIndex == 0,
                                 lastInDay =
@@ -419,6 +442,7 @@ private fun StickyDateHeader(
     date: LocalDate,
     palette: LocalhostPalette,
     dayTone: DayTone,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val dayBackground = when (dayTone) {
@@ -429,6 +453,10 @@ private fun StickyDateHeader(
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .combinedClickable(
+                onClick = {},
+                onLongClick = onLongPress
+            )
             .padding(
                 start = 10.dp,
                 top = 10.dp,
@@ -478,6 +506,9 @@ private fun TimelinePostContainer(
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onToggleSelection: () -> Unit,
     dayTone: DayTone,
     firstInDay: Boolean,
     lastInDay: Boolean,
@@ -544,8 +575,11 @@ private fun TimelinePostContainer(
                     imagePaths = imagePaths,
                     onOpenImages = onOpenImages,
                     pendingDelete = pendingDelete,
-            onDelete = onDelete,
-                    onRestore = onRestore
+                    onDelete = onDelete,
+                    onRestore = onRestore,
+                    selected = selected,
+                    selectionMode = selectionMode,
+                    onToggleSelection = onToggleSelection
                 )
             }
         } else {
@@ -553,9 +587,12 @@ private fun TimelinePostContainer(
                     post = post,
                     imagePaths = imagePaths,
                     onOpenImages = onOpenImages,
-                    pendingDelete = pendingDelete,
+                pendingDelete = pendingDelete,
                 onDelete = onDelete,
-                onRestore = onRestore
+                onRestore = onRestore,
+                selected = selected,
+                selectionMode = selectionMode,
+                onToggleSelection = onToggleSelection
             )
         }
     }
@@ -568,6 +605,9 @@ private fun TimelinePost(
     pendingDelete: Boolean,
     onDelete: () -> Unit,
     onRestore: () -> Unit,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onToggleSelection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (pendingDelete) {
@@ -581,7 +621,9 @@ private fun TimelinePost(
             post = post,
             imagePaths = imagePaths,
             onOpenImages = onOpenImages,
-            onDelete = onDelete,
+            selected = selected,
+            selectionMode = selectionMode,
+            onToggleSelection = onToggleSelection,
             modifier = modifier
         )
     }
@@ -592,74 +634,111 @@ private fun ActiveTimelinePost(
     post: PostEntity,
     imagePaths: List<String>,
     onOpenImages: (List<String>) -> Unit,
-    onDelete: () -> Unit,
+    selected: Boolean,
+    selectionMode: Boolean,
+    onToggleSelection: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = localhostPalette()
+    val haptics = LocalHapticFeedback.current
 
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-            }
-
-            false
+    val borderColor =
+        if (selected) {
+            palette.accent
+        } else {
+            palette.postBorder
         }
-    )
 
-    SwipeToDismissBox(
-        state = dismissState,
+    val borderWidth =
+        if (selected) {
+            2.dp
+        } else {
+            1.dp
+        }
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .semantics {
-                customActions = listOf(
-                    CustomAccessibilityAction(
-                        label = "Delete post",
-                        action = {
-                            onDelete()
-                            true
-                        }
-                    )
-                )
-            },
-        enableDismissFromStartToEnd = false,
-        enableDismissFromEndToStart = true,
-        backgroundContent = {
-            when (dismissState.dismissDirection) {
-                SwipeToDismissBoxValue.EndToStart -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                color = MaterialTheme.colorScheme.error,
-                                shape = RoundedCornerShape(13.dp)
-                            )
-                            .padding(horizontal = 20.dp),
-                        contentAlignment = Alignment.CenterEnd
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                R.drawable.ic_delete_soft
-                            ),
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onError,
-                            modifier = Modifier.size(25.dp)
-                        )
+            .border(
+                width = borderWidth,
+                color = borderColor,
+                shape = RoundedCornerShape(13.dp)
+            )
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onToggleSelection()
                     }
+                },
+                onLongClick = {
+                    haptics.performHapticFeedback(
+                        HapticFeedbackType.LongPress
+                    )
+                    onToggleSelection()
                 }
+            ),
+        shape = RoundedCornerShape(13.dp),
+        color =
+            if (selected) {
+                palette.accent.copy(alpha = 0.12f)
+            } else {
+                palette.postPaper
+            },
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = 16.dp,
+                vertical = 12.dp
+            )
+        ) {
+            Text(
+                text = formatPostTime(post.createdAt),
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                color = palette.meta
+            )
 
-                else -> Unit
+            if (post.text.isNotEmpty()) {
+                Text(
+                    text = post.text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 24.sp
+                    ),
+                    color = palette.ink,
+                    modifier = Modifier
+                        .fillMaxWidth(0.90f)
+                        .padding(top = 5.dp)
+                )
+            }
+
+            imagePaths.firstOrNull()?.let { imagePath ->
+                TimelineImage(
+                    imagePath = imagePath,
+                    imageCount = imagePaths.size,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleSelection()
+                        } else {
+                            onOpenImages(imagePaths)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = if (post.text.isEmpty()) {
+                                6.dp
+                            } else {
+                                10.dp
+                            }
+                        )
+                )
             }
         }
-    ) {
-        TimelinePostSurface(
-            post = post,
-            imagePaths = imagePaths,
-            onOpenImages = onOpenImages,palette = palette
-        )
     }
 }
-
 @Composable
 private fun PendingDeletePost(
     post: PostEntity,

@@ -56,9 +56,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -189,10 +186,10 @@ val imagePicker = rememberLauncherForActivityResult(
         }
     }
 
-    // Only the most recently swiped post gets the three-second
-    // cancellation window.
-    var pendingDeletedPost by remember {
-        mutableStateOf<PostEntity?>(null)
+    // One delete action can contain multiple posts.
+    // The whole batch shares one three-second Undo window.
+    var pendingDeletedPosts by remember {
+        mutableStateOf<List<PostEntity>>(emptyList())
     }
 
     var animateNextPost by remember {
@@ -201,6 +198,10 @@ val imagePicker = rememberLauncherForActivityResult(
 
     var entrancePostId by remember {
         mutableStateOf<Long?>(null)
+    }
+
+    var selectionModeActive by remember {
+        mutableStateOf(false)
     }
 
     val selectedPostIds = remember {
@@ -234,17 +235,29 @@ val imagePicker = rememberLauncherForActivityResult(
             }
     }
 
-    // Start the actual delete only after the three-second grace period.
-    LaunchedEffect(pendingDeletedPost?.id) {
-        val pendingPost =
-            pendingDeletedPost ?: return@LaunchedEffect
+    // Commit the whole batch only after the shared
+    // three-second grace period.
+    LaunchedEffect(pendingDeletedPosts) {
+        val pendingPosts = pendingDeletedPosts
+
+        if (pendingPosts.isEmpty()) {
+            return@LaunchedEffect
+        }
 
         delay(3_000)
 
-        if (pendingDeletedPost?.id == pendingPost.id) {
-            committingDeletedPostIds.add(pendingPost.id)
-            pendingDeletedPost = null
-            onDeletePost(pendingPost.id)
+        if (pendingDeletedPosts == pendingPosts) {
+            pendingPosts.forEach { pendingPost ->
+                committingDeletedPostIds.add(
+                    pendingPost.id
+                )
+            }
+
+            pendingDeletedPosts = emptyList()
+
+            pendingPosts.forEach { pendingPost ->
+                onDeletePost(pendingPost.id)
+            }
         }
     }
 
@@ -253,7 +266,7 @@ val imagePicker = rememberLauncherForActivityResult(
             .filterNot { it.id in committingDeletedPostIds }
             .forEach { add(it) }
 
-        pendingDeletedPost?.let { pendingPost ->
+        pendingDeletedPosts.forEach { pendingPost ->
             if (none { it.id == pendingPost.id }) {
                 add(pendingPost)
             }
@@ -263,23 +276,43 @@ val imagePicker = rememberLauncherForActivityResult(
             .thenByDescending { it.id }
     )
 
-    val deletePost: (PostEntity) -> Unit = { post ->
-        pendingDeletedPost?.let { previousPending ->
-            if (previousPending.id != post.id) {
-                // A new delete replaces the previous Undo candidate.
-                // Commit the older delete immediately.
-                committingDeletedPostIds.add(previousPending.id)
-                onDeletePost(previousPending.id)
-            }
-        }
+    val deletePosts: (List<PostEntity>) -> Unit = { postsToDelete ->
+        if (postsToDelete.isNotEmpty()) {
+            val previousPending =
+                pendingDeletedPosts
 
-        pendingDeletedPost = post
+            if (previousPending.isNotEmpty()) {
+                previousPending.forEach { pendingPost ->
+                    committingDeletedPostIds.add(
+                        pendingPost.id
+                    )
+                    onDeletePost(pendingPost.id)
+                }
+            }
+
+            pendingDeletedPosts = postsToDelete
+        }
     }
 
     val cancelPendingDelete: () -> Unit = {
-        // Nothing has been deleted from Room yet.
-        pendingDeletedPost = null
+        // The current batch has not reached Room yet.
+        pendingDeletedPosts = emptyList()
     }
+
+    val pendingDeletedPostIds =
+        pendingDeletedPosts
+            .mapTo(mutableSetOf()) { it.id }
+
+    val selectablePosts =
+        timelinePosts.filterNot { post ->
+            post.id in pendingDeletedPostIds
+        }
+
+    val allSelectableSelected =
+        selectablePosts.isNotEmpty() &&
+            selectablePosts.all { post ->
+                post.id in selectedPostIds
+            }
 
     Box(
         modifier = modifier
@@ -299,6 +332,40 @@ val imagePicker = rememberLauncherForActivityResult(
                 .statusBarsPadding()
                 .imePadding()
         ) {
+            if (selectionModeActive) {
+                SelectionActionBar(
+                    selectedCount = selectedPostIds.size,
+                    allSelected = allSelectableSelected,
+                    onToggleAll = {
+                        if (allSelectableSelected) {
+                            selectedPostIds.clear()
+                        } else {
+                            selectablePosts.forEach { post ->
+                                selectedPostIds.add(post.id)
+                            }
+                        }
+                    },
+                    onDelete = {
+                        val selectedPosts =
+                            selectablePosts.filter { post ->
+                                post.id in selectedPostIds
+                            }
+
+                        if (selectedPosts.isNotEmpty()) {
+                            deletePosts(selectedPosts)
+                            selectedPostIds.clear()
+                            selectionModeActive = false
+                        }
+                    },
+                    onClose = {
+                        selectedPostIds.clear()
+                        selectionModeActive = false
+                    },
+                    palette = palette,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
             val groupedPosts = timelinePosts.groupBy {
                 postDate(it.createdAt)
             }
@@ -330,8 +397,17 @@ val imagePicker = rememberLauncherForActivityResult(
                             palette = palette,
                             dayTone = dayTone,
                             onLongPress = {
+                                selectionModeActive = true
+
                                 dayPosts.forEach { dayPost ->
-                                    selectedPostIds.add(dayPost.id)
+                                    if (
+                                        dayPost.id !in
+                                        pendingDeletedPostIds
+                                    ) {
+                                        selectedPostIds.add(
+                                            dayPost.id
+                                        )
+                                    }
                                 }
                             }
                         )
@@ -355,19 +431,23 @@ val imagePicker = rememberLauncherForActivityResult(
                                     viewerImagePaths = imagePaths
                                 },
                                 pendingDelete =
-                                    post.id == pendingDeletedPost?.id,
-                                onDelete = {
-                                    deletePost(post)
-                                },
+                                    post.id in pendingDeletedPostIds,
                                 onRestore = cancelPendingDelete,
                                 selected =
                                     post.id in selectedPostIds,
                                 selectionMode =
-                                    selectedPostIds.isNotEmpty(),
+                                    selectionModeActive,
                                 onToggleSelection = {
+                                    if (!selectionModeActive) {
+                                        selectionModeActive = true
+                                    }
+
                                     if (post.id in selectedPostIds) {
                                         selectedPostIds.remove(post.id)
-                                    } else {
+                                    } else if (
+                                        post.id !in
+                                        pendingDeletedPostIds
+                                    ) {
                                         selectedPostIds.add(post.id)
                                     }
                                 },
@@ -432,6 +512,118 @@ val imagePicker = rememberLauncherForActivityResult(
         }
     }
 }
+@Composable
+private fun SelectionActionBar(
+    selectedCount: Int,
+    allSelected: Boolean,
+    onToggleAll: () -> Unit,
+    onDelete: () -> Unit,
+    onClose: () -> Unit,
+    palette: LocalhostPalette,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.padding(
+            start = 10.dp,
+            top = 8.dp,
+            end = 10.dp,
+            bottom = 4.dp
+        ),
+        shape = RoundedCornerShape(18.dp),
+        color = palette.composerGlass,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 6.dp,
+                    vertical = 5.dp
+                ),
+            verticalAlignment =
+                Alignment.CenterVertically
+        ) {
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.semantics {
+                    contentDescription =
+                        "Exit selection mode"
+                }
+            ) {
+                Text(
+                    text = "×",
+                    style =
+                        MaterialTheme.typography.titleLarge,
+                    color = palette.metaStrong
+                )
+            }
+
+            Text(
+                text = "$selectedCount selected",
+                style =
+                    MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                color = palette.metaStrong
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            TextButton(
+                onClick = onToggleAll
+            ) {
+                Text(
+                    text = if (allSelected) {
+                        "Clear all"
+                    } else {
+                        "Select all"
+                    },
+                    color = palette.metaStrong
+                )
+            }
+
+            Surface(
+                onClick = onDelete,
+                enabled = selectedCount > 0,
+                modifier = Modifier
+                    .size(48.dp)
+                    .semantics {
+                        contentDescription =
+                            "Delete selected posts"
+                    },
+                shape = CircleShape,
+                color =
+                    if (selectedCount > 0) {
+                        MaterialTheme.colorScheme
+                            .errorContainer
+                    } else {
+                        palette.inputFill
+                    },
+                tonalElevation = 0.dp
+            ) {
+                Box(
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            R.drawable.ic_delete_soft
+                        ),
+                        contentDescription = null,
+                        tint =
+                            if (selectedCount > 0) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                palette.meta
+                            },
+                        modifier = Modifier.size(21.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 private enum class DayTone {
     Primary,
     Secondary
@@ -504,7 +696,6 @@ private fun TimelinePostContainer(
     imagePaths: List<String>,
     onOpenImages: (List<String>) -> Unit,
     pendingDelete: Boolean,
-    onDelete: () -> Unit,
     onRestore: () -> Unit,
     selected: Boolean,
     selectionMode: Boolean,
@@ -575,7 +766,6 @@ private fun TimelinePostContainer(
                     imagePaths = imagePaths,
                     onOpenImages = onOpenImages,
                     pendingDelete = pendingDelete,
-                    onDelete = onDelete,
                     onRestore = onRestore,
                     selected = selected,
                     selectionMode = selectionMode,
@@ -588,7 +778,6 @@ private fun TimelinePostContainer(
                     imagePaths = imagePaths,
                     onOpenImages = onOpenImages,
                 pendingDelete = pendingDelete,
-                onDelete = onDelete,
                 onRestore = onRestore,
                 selected = selected,
                 selectionMode = selectionMode,
@@ -603,7 +792,6 @@ private fun TimelinePost(
     imagePaths: List<String>,
     onOpenImages: (List<String>) -> Unit,
     pendingDelete: Boolean,
-    onDelete: () -> Unit,
     onRestore: () -> Unit,
     selected: Boolean,
     selectionMode: Boolean,
@@ -764,103 +952,85 @@ private fun PendingDeletePost(
         }
     }
 
-    val restoreState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.StartToEnd) {
-                onRestore()
-            }
-
-            false
-        }
-    )
-
-    SwipeToDismissBox(
-        state = restoreState,
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .semantics {
-                customActions = listOf(
-                    CustomAccessibilityAction(
-                        label = "Cancel deletion",
-                        action = {
-                            onRestore()
-                            true
-                        }
-                    )
-                )
-            },
-        enableDismissFromStartToEnd = true,
-        enableDismissFromEndToStart = false,
-        backgroundContent = {
-            when (restoreState.dismissDirection) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                color = palette.accent.copy(
-                                    alpha = 0.32f
-                                ),
-                                shape = RoundedCornerShape(13.dp)
-                            )
-                            .padding(horizontal = 20.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                R.drawable.ic_restore_soft
-                            ),
-                            contentDescription = null,
-                            tint = palette.metaStrong,
-                            modifier = Modifier.size(25.dp)
-                        )
-                    }
-                }
-
-                else -> Unit
-            }
-        }
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.error.copy(
+            .border(
+                width = 1.dp,
+                color =
+                    MaterialTheme.colorScheme.error.copy(
                         alpha = 0.38f
                     ),
-                    shape = RoundedCornerShape(13.dp)
-                ),
-            shape = RoundedCornerShape(13.dp),
-            color = MaterialTheme.colorScheme.errorContainer.copy(
+                shape = RoundedCornerShape(13.dp)
+            ),
+        shape = RoundedCornerShape(13.dp),
+        color =
+            MaterialTheme.colorScheme.errorContainer.copy(
                 alpha = 0.22f
             ),
-            tonalElevation = 0.dp
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                start = 16.dp,
+                top = 12.dp,
+                end = 10.dp,
+                bottom = 12.dp
+            ),
+            verticalAlignment =
+                Alignment.CenterVertically
         ) {
             Column(
-                modifier = Modifier.padding(
-                    horizontal = 16.dp,
-                    vertical = 12.dp
-                )
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = "Deleting" + ".".repeat(dotCount),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    color = MaterialTheme.colorScheme.error
+                    text =
+                        "Deleting" +
+                            ".".repeat(dotCount),
+                    style =
+                        MaterialTheme.typography
+                            .labelSmall.copy(
+                                fontSize = 12.sp,
+                                fontWeight =
+                                    FontWeight.SemiBold
+                            ),
+                    color =
+                        MaterialTheme.colorScheme.error
                 )
 
+                if (post.text.isNotEmpty()) {
+                    Text(
+                        text = post.text,
+                        style =
+                            MaterialTheme.typography
+                                .bodyLarge.copy(
+                                    lineHeight = 24.sp
+                                ),
+                        color = palette.meta,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 5.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            TextButton(
+                onClick = onRestore,
+                modifier = Modifier.semantics {
+                    contentDescription =
+                        "Undo deletion"
+                }
+            ) {
                 Text(
-                    text = post.text,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        lineHeight = 24.sp
-                    ),
-                    color = palette.meta,
-                    modifier = Modifier
-                        .fillMaxWidth(0.90f)
-                        .padding(top = 5.dp)
+                    text = "Undo",
+                    style =
+                        MaterialTheme.typography
+                            .labelLarge.copy(
+                                fontWeight =
+                                    FontWeight.SemiBold
+                            )
                 )
             }
         }

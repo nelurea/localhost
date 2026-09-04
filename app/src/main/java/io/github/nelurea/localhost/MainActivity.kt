@@ -52,6 +52,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
@@ -204,6 +205,10 @@ val imagePicker = rememberLauncherForActivityResult(
         mutableStateOf(false)
     }
 
+    var showDeleteConfirmation by remember {
+        mutableStateOf(false)
+    }
+
     val selectedPostIds = remember {
         mutableStateSetOf<Long>()
     }
@@ -346,18 +351,12 @@ val imagePicker = rememberLauncherForActivityResult(
                         }
                     },
                     onDelete = {
-                        val selectedPosts =
-                            selectablePosts.filter { post ->
-                                post.id in selectedPostIds
-                            }
-
-                        if (selectedPosts.isNotEmpty()) {
-                            deletePosts(selectedPosts)
-                            selectedPostIds.clear()
-                            selectionModeActive = false
+                        if (selectedPostIds.isNotEmpty()) {
+                            showDeleteConfirmation = true
                         }
                     },
                     onClose = {
+                        showDeleteConfirmation = false
                         selectedPostIds.clear()
                         selectionModeActive = false
                     },
@@ -535,6 +534,62 @@ val imagePicker = rememberLauncherForActivityResult(
             )
         }
 
+
+        if (showDeleteConfirmation) {
+            AlertDialog(
+                onDismissRequest = {
+                    showDeleteConfirmation = false
+                },
+                title = {
+                    Text(
+                        text = if (selectedPostIds.size == 1) {
+                            "Delete post?"
+                        } else {
+                            "Delete ${selectedPostIds.size} posts?"
+                        }
+                    )
+                },
+                text = {
+                    Text(
+                        text =
+                            "You can undo this for 3 seconds after deletion."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val selectedPosts =
+                                selectablePosts.filter { post ->
+                                    post.id in selectedPostIds
+                                }
+
+                            showDeleteConfirmation = false
+
+                            if (selectedPosts.isNotEmpty()) {
+                                deletePosts(selectedPosts)
+                                selectedPostIds.clear()
+                                selectionModeActive = false
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = "Delete",
+                            color =
+                                MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
 
         viewerImagePaths?.let { imagePaths ->
             PostedImageViewer(

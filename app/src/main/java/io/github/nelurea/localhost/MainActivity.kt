@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -201,6 +202,8 @@ val imagePicker = rememberLauncherForActivityResult(
         mutableStateOf<Long?>(null)
     }
 
+    val timelineState = rememberLazyListState()
+
     var selectionModeActive by remember {
         mutableStateOf(false)
     }
@@ -216,6 +219,7 @@ val imagePicker = rememberLauncherForActivityResult(
     LaunchedEffect(animateNextPost, posts.firstOrNull()?.id) {
         if (animateNextPost) {
             posts.firstOrNull()?.let { newestPost ->
+                timelineState.scrollToItem(0)
                 entrancePostId = newestPost.id
                 animateNextPost = false
             }
@@ -370,6 +374,7 @@ val imagePicker = rememberLauncherForActivityResult(
             }
 
             LazyColumn(
+                state = timelineState,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
@@ -451,6 +456,7 @@ val imagePicker = rememberLauncherForActivityResult(
                             key = post.id
                         ) {
                             TimelinePostContainer(
+                                modifier = Modifier.animateItem(),
                                 post = post,
                                 imagePaths =
                                     postImagesByPostId[post.id]
@@ -1213,6 +1219,8 @@ private fun TimelineImage(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val palette = localhostPalette()
+
     var bitmap by remember(imagePath) {
         mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(
             null
@@ -1227,52 +1235,53 @@ private fun TimelineImage(
         }
     }
 
-    bitmap?.let { image ->
-        Box(
-            modifier = modifier
-                .clickable(onClick = onClick)
+    Box(
+        modifier = modifier
+            .height(220.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            shape = RoundedCornerShape(12.dp),
+            color = palette.inputFill,
+            tonalElevation = 0.dp
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                tonalElevation = 0.dp
-            ) {
+            bitmap?.let { image ->
                 Image(
                     bitmap = image,
                     contentDescription = "Attached image",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(220.dp),
+                    modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
             }
+        }
 
-            if (imageCount > 1) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color.Black.copy(alpha = 0.38f),
-                    tonalElevation = 0.dp
-                ) {
-                    Text(
-                        text = "1/$imageCount",
-                        color = Color.White.copy(alpha = 0.92f),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        modifier = Modifier.padding(
-                            horizontal = 8.dp,
-                            vertical = 4.dp
-                        )
+        if (imageCount > 1) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Black.copy(alpha = 0.38f),
+                tonalElevation = 0.dp
+            ) {
+                Text(
+                    text = "1/$imageCount",
+                    color = Color.White.copy(alpha = 0.92f),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    modifier = Modifier.padding(
+                        horizontal = 8.dp,
+                        vertical = 4.dp
                     )
-                }
+                )
             }
         }
     }
 }
+
 @Composable
 private fun PostedImageViewer(
     imagePaths: List<String>,

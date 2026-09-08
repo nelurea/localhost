@@ -59,6 +59,10 @@ class HomeViewModel(
 
     private var saveDraftJob: Job? = null
     private var draftChangedSinceInit = false
+    private var draftRestoreComplete = false
+
+    private val pendingSharedTexts =
+        mutableListOf<String>()
 
     init {
         viewModelScope.launch {
@@ -73,6 +77,51 @@ class HomeViewModel(
             if (!draftChangedSinceInit) {
                 _draft.value = restoredDraft
             }
+
+            draftRestoreComplete = true
+
+            val pendingTexts =
+                pendingSharedTexts.toList()
+
+            pendingSharedTexts.clear()
+
+            pendingTexts.forEach { sharedText ->
+                mergeSharedText(sharedText)
+            }
+        }
+    }
+
+    fun acceptSharedText(text: String) {
+        val sharedText = text.trim()
+
+        if (sharedText.isEmpty()) return
+
+        if (!draftRestoreComplete) {
+            pendingSharedTexts += sharedText
+            return
+        }
+
+        mergeSharedText(sharedText)
+    }
+
+    private fun mergeSharedText(sharedText: String) {
+        val currentDraft = _draft.value
+
+        val mergedDraft = when {
+            currentDraft.isBlank() ->
+                sharedText
+
+            currentDraft.trimEnd() == sharedText ->
+                currentDraft
+
+            else ->
+                currentDraft.trimEnd() +
+                    "\n" +
+                    sharedText
+        }
+
+        if (mergedDraft != currentDraft) {
+            onDraftChange(mergedDraft)
         }
     }
 

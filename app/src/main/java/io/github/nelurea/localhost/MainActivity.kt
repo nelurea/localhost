@@ -1,5 +1,6 @@
 package io.github.nelurea.localhost
 
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
@@ -129,6 +130,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        if (savedInstanceState == null) {
+            handleShareIntent(intent)
+        }
+
         setContent {
             LocalhostTheme {
                 val posts by homeViewModel.posts.collectAsStateWithLifecycle()
@@ -154,6 +159,32 @@ onDraftChange = homeViewModel::onDraftChange,
                     onRestorePost = homeViewModel::restorePost
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (
+            intent?.action != Intent.ACTION_SEND ||
+            intent.type?.startsWith("text/") != true
+        ) {
+            return
+        }
+
+        val sharedText =
+            intent
+                .getCharSequenceExtra(Intent.EXTRA_TEXT)
+                ?.toString()
+                ?.trim()
+                .orEmpty()
+
+        if (sharedText.isNotEmpty()) {
+            homeViewModel.acceptSharedText(sharedText)
         }
     }
 }

@@ -169,22 +169,37 @@ onDraftChange = homeViewModel::onDraftChange,
     }
 
     private fun handleShareIntent(intent: Intent?) {
-        if (
-            intent?.action != Intent.ACTION_SEND ||
-            intent.type?.startsWith("text/") != true
-        ) {
+        if (intent?.action != Intent.ACTION_SEND) {
             return
         }
 
-        val sharedText =
-            intent
-                .getCharSequenceExtra(Intent.EXTRA_TEXT)
-                ?.toString()
-                ?.trim()
-                .orEmpty()
+        when {
+            intent.type?.startsWith("text/") == true -> {
+                val sharedText =
+                    intent
+                        .getCharSequenceExtra(Intent.EXTRA_TEXT)
+                        ?.toString()
+                        ?.trim()
+                        .orEmpty()
 
-        if (sharedText.isNotEmpty()) {
-            homeViewModel.acceptSharedText(sharedText)
+                if (sharedText.isNotEmpty()) {
+                    homeViewModel.acceptSharedText(sharedText)
+                }
+            }
+
+            intent.type?.startsWith("image/") == true -> {
+                val sharedImageUri =
+                    intent.getParcelableExtra(
+                        Intent.EXTRA_STREAM,
+                        Uri::class.java
+                    )
+
+                if (sharedImageUri != null) {
+                    homeViewModel.selectImages(
+                        listOf(sharedImageUri)
+                    )
+                }
+            }
         }
     }
 }
